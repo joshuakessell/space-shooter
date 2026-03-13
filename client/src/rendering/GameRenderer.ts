@@ -675,14 +675,16 @@ export class GameRenderer {
       if (bounced) {
         laser.bouncesRemaining--;
         if (laser.bouncesRemaining <= 0) {
-          this.ghostLasers.splice(i, 1);
+          this.ghostLasers[i] = this.ghostLasers.at(-1)!;
+          this.ghostLasers.pop();
           continue;
         }
       }
 
       // Safety TTL — 5 seconds max
       if (laser.age > 5) {
-        this.ghostLasers.splice(i, 1);
+        this.ghostLasers[i] = this.ghostLasers.at(-1)!;
+        this.ghostLasers.pop();
         continue;
       }
 
@@ -730,7 +732,8 @@ export class GameRenderer {
       if (t >= 1) {
         // Coin arrived at turret
         if (coin.isLocal) localPayoutAccum += coin.payout;
-        this.coinParticles.splice(i, 1);
+        this.coinParticles[i] = this.coinParticles.at(-1)!;
+        this.coinParticles.pop();
         continue;
       }
 
@@ -812,7 +815,8 @@ export class GameRenderer {
       n.y -= 40 * dt;
 
       if (n.alpha <= 0) {
-        this.notifications.splice(i, 1);
+        this.notifications[i] = this.notifications.at(-1)!;
+        this.notifications.pop();
         continue;
       }
 
@@ -918,11 +922,11 @@ export class GameRenderer {
       scale = Math.max(0.1, Math.min(2.5, scale));
     } else if (t < 3.5) {
       // Hold at 2.0 with subtle pulse
-      scale = 2.0 + 0.1 * Math.sin((t - 1) * 4);
+      scale = 2 + 0.1 * Math.sin((t - 1) * 4);
     } else {
       // Fade out over 0.5s
       const fadeT = (t - 3.5) / 0.5;
-      scale = 2.0;
+      scale = 2;
       alpha = 1 - fadeT;
     }
 

@@ -16,6 +16,7 @@ import type {
   PathComponent,
   ComponentStore,
 } from './components.js';
+import { ObjectPool } from '../pool/ObjectPool.js';
 
 /**
  * The ECS World: owns all component stores and the entity ID allocator.
@@ -40,6 +41,39 @@ export class World {
 
   /** Current simulation tick */
   public currentTick = 0;
+
+  // ─── Component Pools (prevents GC pressure) ───
+
+  public readonly positionPool = new ObjectPool<PositionComponent>(
+    () => ({ x: 0, y: 0 }),
+    (p) => { p.x = 0; p.y = 0; },
+    200,
+  );
+
+  public readonly projectilePool = new ObjectPool<ProjectileComponent>(
+    () => ({ ownerId: '', betAmount: 0, angle: 0, bouncesRemaining: 0 }),
+    (p) => {
+      const m = p as { ownerId: string; betAmount: number; angle: number; bouncesRemaining: number; lockedTargetId?: number };
+      m.ownerId = ''; m.betAmount = 0; m.angle = 0; m.bouncesRemaining = 0;
+      delete m.lockedTargetId;
+    },
+    100,
+  );
+
+  public readonly spaceObjectPool = new ObjectPool<SpaceObjectComponent>(
+    () => ({ type: '' as SpaceObjectComponent['type'], multiplier: 1, destroyProbability: 0, absorbedCredits: 0, isDead: false }),
+    (s) => {
+      const m = s as { type: string; multiplier: number; destroyProbability: number; absorbedCredits: number; isDead: boolean };
+      m.type = ''; m.multiplier = 1; m.destroyProbability = 0; m.absorbedCredits = 0; m.isDead = false;
+    },
+    50,
+  );
+
+  public readonly boundsPool = new ObjectPool<BoundsComponent>(
+    () => ({ radius: 0 }),
+    (b) => { (b as { radius: number }).radius = 0; },
+    200,
+  );
 
   // ─── Entity Lifecycle ───
 
@@ -66,6 +100,19 @@ export class World {
    * entities tagged with PendingDestroy.
    */
   destroyEntity(id: EntityId): void {
+    // Release pooled components before deleting
+    const pos = this.positions.get(id);
+    if (pos) this.positionPool.release(pos);
+
+    const proj = this.projectiles.get(id);
+    if (proj) this.projectilePool.release(proj);
+
+    const so = this.spaceObjects.get(id);
+    if (so) this.spaceObjectPool.release(so);
+
+    const bound = this.bounds.get(id);
+    if (bound) this.boundsPool.release(bound);
+
     this.positions.delete(id);
     this.velocities.delete(id);
     this.spaceObjects.delete(id);

@@ -56,7 +56,8 @@ export class SpawnSystem {
         if (world.spaceObjects.size < MAX_SPACE_OBJECTS) {
           this.instantiateSpawnRequest(world, pending.request);
         }
-        this.pendingSpawns.splice(i, 1);
+        this.pendingSpawns[i] = this.pendingSpawns.at(-1)!;
+        this.pendingSpawns.pop();
       }
     }
 
@@ -112,20 +113,20 @@ export class SpawnSystem {
     // Create the entity
     const entityId = world.createEntity();
 
-    // Initial position = first control point + offset
+    // Initial position = first control point + offset (pooled)
     const startPt = request.controlPoints[0];
-    world.positions.set(entityId, {
-      x: startPt.x + request.offset.x,
-      y: startPt.y + request.offset.y,
-    });
+    const pos = world.positionPool.acquire();
+    pos.x = startPt.x + request.offset.x;
+    pos.y = startPt.y + request.offset.y;
+    world.positions.set(entityId, pos);
 
-    world.spaceObjects.set(entityId, {
-      type,
-      multiplier: objConfig.multiplier,
-      destroyProbability: objConfig.destroyProbability,
-      absorbedCredits: 0,
-      isDead: false,
-    });
+    const so = world.spaceObjectPool.acquire();
+    (so as { type: string }).type = type;
+    (so as { multiplier: number }).multiplier = objConfig.multiplier;
+    (so as { destroyProbability: number }).destroyProbability = objConfig.destroyProbability;
+    so.absorbedCredits = 0;
+    so.isDead = false;
+    world.spaceObjects.set(entityId, so);
 
     world.paths.set(entityId, {
       pathType: request.pathType,
@@ -137,7 +138,9 @@ export class SpawnSystem {
       sineFrequency: request.sineFrequency,
     });
 
-    world.bounds.set(entityId, { radius: objConfig.collisionRadius });
+    const bound = world.boundsPool.acquire();
+    (bound as { radius: number }).radius = objConfig.collisionRadius;
+    world.bounds.set(entityId, bound);
   }
 
   /**

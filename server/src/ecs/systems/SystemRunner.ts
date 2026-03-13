@@ -188,20 +188,27 @@ export class SystemRunner {
       }
     }
 
-    // Create projectile entity
+    // Create projectile entity (pooled components)
     const entityId = this.world.createEntity();
-    this.world.positions.set(entityId, { x: turretX, y: turretY });
-    const projData: import('../components.js').ProjectileComponent = {
-      ownerId: playerId,
-      betAmount,
-      angle,
-      bouncesRemaining: MAX_BOUNCES,
-    };
+
+    const pos = this.world.positionPool.acquire();
+    pos.x = turretX;
+    pos.y = turretY;
+    this.world.positions.set(entityId, pos);
+
+    const projData = this.world.projectilePool.acquire();
+    (projData as { ownerId: string }).ownerId = playerId;
+    (projData as { betAmount: number }).betAmount = betAmount;
+    projData.angle = angle;
+    projData.bouncesRemaining = MAX_BOUNCES;
     if (lockedTargetId !== undefined) {
       projData.lockedTargetId = lockedTargetId;
     }
     this.world.projectiles.set(entityId, projData);
-    this.world.bounds.set(entityId, { radius: PROJECTILE_RADIUS });
+
+    const bound = this.world.boundsPool.acquire();
+    (bound as { radius: number }).radius = PROJECTILE_RADIUS;
+    this.world.bounds.set(entityId, bound);
 
     const result: NewProjectileInfo = { entityId, ownerId: playerId, x: turretX, y: turretY, angle };
     if (lockedTargetId !== undefined) {
