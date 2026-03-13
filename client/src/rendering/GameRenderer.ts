@@ -25,6 +25,7 @@ import type {
   SyncedSpaceObjectState,
   PayoutEventData,
 } from '../network/ColyseusClient.js';
+import type { FXManager } from '../fx/FXManager.js';
 
 /** Color palette for space object types */
 const OBJECT_COLORS: Record<string, string> = {
@@ -138,6 +139,30 @@ export class GameRenderer {
 
   // Local player info
   public localSessionId = '';
+
+  // ─── Screen Shake ───
+  private shakeIntensity = 0;
+  private shakeDuration = 0;
+  private shakeElapsed = 0;
+
+  // ─── Camera Flash ───
+  private flashAlpha = 0;
+  private flashDuration = 0;
+  private flashElapsed = 0;
+
+  // ─── Turret Recoil (per seatIndex) ───
+  private readonly recoilOffsets: number[] = new Array(MAX_PLAYERS).fill(0);
+  private readonly recoilAngles: number[] = new Array(MAX_PLAYERS).fill(0);
+
+  // ─── Jackpot Popup ───
+  private jackpotActive = false;
+  private jackpotMultiplier = 0;
+  private jackpotColor = '#FFD700';
+  private jackpotAge = 0;
+  private readonly jackpotDuration = 4; // total: 1s scale-in + 2.5s hold + 0.5s fade
+
+  // ─── FX Manager reference ───
+  public fxManager: FXManager | null = null;
 
   constructor(containerId: string) {
     const container = document.getElementById(containerId);
@@ -275,6 +300,20 @@ export class GameRenderer {
     const ctx = this.ctx;
     const state = this.currentState;
 
+    // ─── Screen Shake Offset ───
+    ctx.save();
+    if (this.shakeIntensity > 0) {
+      this.shakeElapsed += deltaSec;
+      if (this.shakeElapsed >= this.shakeDuration) {
+        this.shakeIntensity = 0;
+      } else {
+        const decay = 1 - this.shakeElapsed / this.shakeDuration;
+        const offsetX = (Math.random() - 0.5) * GAME_WIDTH * this.shakeIntensity * decay;
+        const offsetY = (Math.random() - 0.5) * GAME_HEIGHT * this.shakeIntensity * decay;
+        ctx.translate(offsetX, offsetY);
+      }
+    }
+
     // ─── Background ───
     this.renderBackground(ctx);
 
@@ -310,6 +349,12 @@ export class GameRenderer {
     // ─── Coin Shower Particles ───
     this.updateAndRenderCoinParticles(ctx, deltaSec);
 
+    // ─── FX Particles (trails, sparks, explosions) ───
+    if (this.fxManager) {
+      this.fxManager.update(deltaSec);
+      this.fxManager.render(ctx);
+    }
+
     // ─── Aim Laser Line ───
     if (localTurretX > 0) {
       this.renderAimLine(ctx, localTurretX, localTurretY, aimAngle);
@@ -317,6 +362,28 @@ export class GameRenderer {
 
     // ─── Payout Notifications ───
     this.renderNotifications(ctx);
+
+    // ─── Jackpot Popup ───
+    if (this.jackpotActive) {
+      this.renderJackpotPopup(ctx, deltaSec);
+    }
+
+    // ─── Restore shake offset ───
+    ctx.restore();
+
+    // ─── Camera Flash Overlay (on top of everything) ───
+    if (this.flashAlpha > 0) {
+      this.flashElapsed += deltaSec;
+      if (this.flashElapsed >= this.flashDuration) {
+        this.flashAlpha = 0;
+      } else {
+        const decay = 1 - this.flashElapsed / this.flashDuration;
+        this.ctx.globalAlpha = this.flashAlpha * decay;
+        this.ctx.fillStyle = '#ffffff';
+        this.ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+        this.ctx.globalAlpha = 1;
+      }
+    }
   }
 
   // ─── Private Rendering Methods ───
@@ -515,6 +582,18 @@ export class GameRenderer {
       ctx.globalAlpha = 1;
     }
 
+    // Apply recoil offset if active
+    const recoilDist = this.recoilOffsets[player.seatIndex] ?? 0;
+    const recoilX = recoilDist > 0.1 ? -Math.cos(aimAngle) * recoilDist : 0;
+    const recoilY = recoilDist > 0.1 ? -Math.sin(aimAngle) * recoilDist : 0;
+
+    // Decay recoil
+    if (this.recoilOffsets[player.seatIndex] > 0.1) {
+      this.recoilOffsets[player.seatIndex] *= 0.85; // exponential decay ~100ms
+    } else {
+      this.recoilOffsets[player.seatIndex] = 0;
+    }
+
     // Seat-colored turret body
     ctx.fillStyle = seatColor;
     ctx.strokeStyle = seatColor;
@@ -522,7 +601,7 @@ export class GameRenderer {
 
     // Turret body (triangle pointing in aim direction)
     ctx.save();
-    ctx.translate(x, y);
+    ctx.translate(x + recoilX, y + recoilY);
     ctx.rotate(aimAngle);
 
     ctx.beginPath();
@@ -766,6 +845,116 @@ export class GameRenderer {
   /** Get the canvas element (for input handler) */
   getCanvas(): HTMLCanvasElement {
     return this.canvas;
+  }
+
+  // ─── Juice API ───
+
+  /**
+   * Trigger screen shake. Three tiers:
+   * - micro: intensity=0.002, 100ms (< 10x)
+   * - medium: intensity=0.01, 250ms (10-49x)
+   * - severe: intensity=0.02, 500ms (>= 50x) + camera flash
+   */
+  applyShake(intensity: number, durationMs: number): void {
+    // Only override if new shake is stronger
+    if (intensity > this.shakeIntensity) {
+      this.shakeIntensity = intensity;
+      this.shakeDuration = durationMs / 1000;
+      this.shakeElapsed = 0;
+    }
+  }
+
+  /** Trigger shake based on multiplier tier */
+  applyShakeForMultiplier(multiplier: number): void {
+    if (multiplier >= 50) {
+      this.applyShake(0.02, 500);
+      this.triggerFlash(0.6, 50);
+    } else if (multiplier >= 10) {
+      this.applyShake(0.01, 250);
+    } else {
+      this.applyShake(0.002, 100);
+    }
+  }
+
+  /** Trigger camera flash (white overlay) */
+  triggerFlash(alpha: number, durationMs: number): void {
+    this.flashAlpha = alpha;
+    this.flashDuration = durationMs / 1000;
+    this.flashElapsed = 0;
+  }
+
+  /** Trigger turret recoil for a seat */
+  triggerRecoil(seatIndex: number, angle: number): void {
+    this.recoilOffsets[seatIndex] = 8; // 8px jerk
+    this.recoilAngles[seatIndex] = angle;
+  }
+
+  /** Show jackpot popup text */
+  showJackpotPopup(multiplier: number, color: string): void {
+    this.jackpotActive = true;
+    this.jackpotMultiplier = multiplier;
+    this.jackpotColor = color;
+    this.jackpotAge = 0;
+  }
+
+  /** Render the jackpot popup with elastic scale-in */
+  private renderJackpotPopup(ctx: CanvasRenderingContext2D, deltaSec: number): void {
+    this.jackpotAge += deltaSec;
+
+    if (this.jackpotAge >= this.jackpotDuration) {
+      this.jackpotActive = false;
+      return;
+    }
+
+    const t = this.jackpotAge;
+    let scale: number;
+    let alpha = 1;
+
+    if (t < 1) {
+      // Elastic scale-in: 0.1 → 2.0 over 1s
+      const p = t / 1;
+      // Elastic ease-out approximation
+      scale = 0.1 + 1.9 * (1 - Math.pow(2, -10 * p) * Math.cos(p * Math.PI * 3));
+      scale = Math.max(0.1, Math.min(2.5, scale));
+    } else if (t < 3.5) {
+      // Hold at 2.0 with subtle pulse
+      scale = 2.0 + 0.1 * Math.sin((t - 1) * 4);
+    } else {
+      // Fade out over 0.5s
+      const fadeT = (t - 3.5) / 0.5;
+      scale = 2.0;
+      alpha = 1 - fadeT;
+    }
+
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, alpha);
+    ctx.translate(GAME_WIDTH / 2, GAME_HEIGHT / 2);
+    ctx.scale(scale, scale);
+
+    // Color pulse
+    const pulse = Math.sin(this.jackpotAge * 6);
+    const r = Number.parseInt(this.jackpotColor.slice(1, 3), 16);
+    const g = Number.parseInt(this.jackpotColor.slice(3, 5), 16);
+    const b = Number.parseInt(this.jackpotColor.slice(5, 7), 16);
+    const pr = Math.min(255, r + Math.floor(pulse * 50));
+    const pg = Math.min(255, g + Math.floor(pulse * 50));
+    const pb = Math.min(255, b + Math.floor(pulse * 50));
+    const pulseColor = `rgb(${pr},${pg},${pb})`;
+
+    // Shadow glow
+    ctx.shadowColor = pulseColor;
+    ctx.shadowBlur = 30;
+
+    // JACKPOT text
+    ctx.font = 'bold 36px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = pulseColor;
+    ctx.fillText(`🎰 JACKPOT! x${this.jackpotMultiplier} 🎰`, 0, 0);
+
+    ctx.shadowBlur = 0;
+    ctx.restore();
+    ctx.globalAlpha = 1;
   }
 
   /** Cleanup */

@@ -1,28 +1,32 @@
 // ─────────────────────────────────────────────────────────────
 // Main Entry Point — Bootstraps Game Client
-// Connects network, input, renderer, and HUD.
+// Connects network, input, renderer, HUD, audio, and FX.
 //
-// Phase 4: Wires remote_shoot → ghost lasers, pointer_move
-// angle sync, coin shower → slot-roll credit animation.
+// Phase 5: Wires AudioManager + FXManager + screen shake +
+// turret recoil + jackpot popup + coin shower audio sync.
 // ─────────────────────────────────────────────────────────────
 
-import { BET_TIERS, GAME_WIDTH, GAME_HEIGHT, SEAT_COORDINATES } from '@space-shooter/shared';
+import { BET_TIERS, GAME_WIDTH, GAME_HEIGHT, SEAT_COORDINATES, SEAT_COLORS } from '@space-shooter/shared';
 import { GameClient } from './network/ColyseusClient.js';
 import type { GameRoomStateSnapshot, PayoutEventData } from './network/ColyseusClient.js';
 import { GameRenderer } from './rendering/GameRenderer.js';
 import { InputHandler } from './input/InputHandler.js';
 import { HUDManager } from './ui/HUDManager.js';
+import { AudioManager } from './audio/AudioManager.js';
+import { FXManager } from './fx/FXManager.js';
 
 // ─── Configuration ───
 const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? 'ws://localhost:2567';
 const FIRE_COOLDOWN_MS = 150;
-const POINTER_MOVE_THRESHOLD = 0.05; // radians — only send when angle changes this much
+const POINTER_MOVE_THRESHOLD = 0.05; // radians
 
 // ─── State ───
 let renderer: GameRenderer;
 let input: InputHandler;
 let client: GameClient;
 let hud: HUDManager;
+let audio: AudioManager;
+let fxManager: FXManager;
 let latestState: GameRoomStateSnapshot | null = null;
 let localTurretX = 0;
 let localTurretY = 0;
@@ -34,28 +38,33 @@ let currentBet: number = BET_TIERS[0];
 
 /**
  * Boot sequence:
- * 1. Create renderer
- * 2. Create input handler
- * 3. Create HUD overlay
- * 4. Connect to Colyseus server
- * 5. Start render loop
+ * 1. Renderer + FXManager
+ * 2. AudioManager
+ * 3. Input handler
+ * 4. HUD overlay
+ * 5. Network
+ * 6. Render loop
  */
 async function boot(): Promise<void> {
   console.log('[SpaceShooter] Booting...');
 
-  // 1. Renderer
+  // 1. Renderer + FX
   renderer = new GameRenderer('game-container');
+  fxManager = new FXManager();
+  renderer.fxManager = fxManager;
 
-  // Coin shower → slot roll: only trigger credit roll when coins reach local turret
+  // Coin shower → audio sync: play coin sound when coins reach local turret
   renderer.onLocalCoinsArrived = (_payout: number) => {
-    // Credits are already updated via state change; the animation delay
-    // is handled by the coin flight time. HUD updates on each state change.
+    audio.playCoinCollect();
   };
 
-  // 2. Input
+  // 2. Audio
+  audio = new AudioManager();
+
+  // 3. Input
   input = new InputHandler('game-container');
 
-  // 3. HUD
+  // 4. HUD
   hud = new HUDManager('game-container');
   hud.onBetChange = (newBet: number) => {
     currentBet = newBet;
@@ -63,7 +72,7 @@ async function boot(): Promise<void> {
     console.log(`[SpaceShooter] Bet changed to $${currentBet}`);
   };
 
-  // 4. Network
+  // 5. Network
   client = new GameClient(SERVER_URL, {
     onJoined: (sessionId: string) => {
       console.log(`[SpaceShooter] Joined as ${sessionId}`);
@@ -73,29 +82,42 @@ async function boot(): Promise<void> {
       latestState = state;
       renderer.updateState(state);
 
-      // Update local turret position + seat
       const localPlayer = state.players.get(client.sessionId);
       if (localPlayer) {
         localTurretX = localPlayer.turretX;
         localTurretY = localPlayer.turretY;
         localSeatIndex = localPlayer.seatIndex;
-
-        // Update HUD credits
         hud.updateCredits(localPlayer.credits);
       }
     },
     onObjectDestroyed: (event: PayoutEventData) => {
       console.log(`[SpaceShooter] 💥 ${event.objectType} destroyed! +$${event.payout} (${event.multiplier}x)`);
 
-      // Find the object's last position for the coin shower
       const obj = latestState?.spaceObjects.get(event.objectId);
       const killX = obj?.x ?? GAME_WIDTH / 2;
       const killY = obj?.y ?? GAME_HEIGHT / 2;
 
-      // Payout notification at kill position
+      // ─── Payout notification ───
       renderer.addPayoutNotification(event, killX, killY);
 
-      // Coin shower: fly from kill position to winning player's turret
+      // ─── Explosion FX ───
+      const objColor = SEAT_COLORS[event.seatIndex] ?? '#FF6347';
+      fxManager.playExplosion(killX, killY, event.multiplier, objColor);
+
+      // ─── Audio: explosion tier ───
+      audio.playExplosion(event.multiplier);
+
+      // ─── Screen shake (multiplier-based tier) ───
+      renderer.applyShakeForMultiplier(event.multiplier);
+
+      // ─── Jackpot popup for 50x+ ───
+      if (event.multiplier >= 50) {
+        const seatColor = SEAT_COLORS[event.seatIndex] ?? '#FFD700';
+        renderer.showJackpotPopup(event.multiplier, seatColor);
+        audio.playJackpotSiren();
+      }
+
+      // ─── Coin shower → winning turret ───
       const winnerCoords = SEAT_COORDINATES[event.seatIndex];
       if (winnerCoords) {
         const isLocal = event.playerId === client.sessionId;
@@ -116,8 +138,10 @@ async function boot(): Promise<void> {
       hud.flashInsufficientFunds();
     },
     onRemoteShoot: (seatIndex: number, angle: number, _lockedTargetId?: string) => {
-      // Spawn a ghost laser from the remote player's turret
+      // Ghost laser + audio + recoil for remote player
       renderer.addGhostLaser(seatIndex, angle);
+      renderer.triggerRecoil(seatIndex, angle);
+      audio.playShoot();
     },
     onError: (error: Error) => {
       console.error('[SpaceShooter] Connection error:', error);
@@ -126,10 +150,10 @@ async function boot(): Promise<void> {
 
   await client.joinRoom();
 
-  // 5. Bet keyboard shortcuts
+  // 6. Bet keyboard shortcuts
   setupBetControls();
 
-  // 6. Start render loop
+  // 7. Start render loop
   lastFrameTime = performance.now();
   requestAnimationFrame(gameLoop);
   console.log('[SpaceShooter] Ready!');
@@ -166,8 +190,10 @@ function gameLoop(timestamp: number): void {
     client.fireWeapon(aimAngle, currentBet, lockedTarget?.id);
     lastFireTime = now;
 
-    // Client-side prediction: spawn a local ghost laser immediately
+    // Client-side prediction: ghost laser + recoil + audio
     renderer.addPredictedLaser(localTurretX, localTurretY, aimAngle, localSeatIndex);
+    renderer.triggerRecoil(localSeatIndex, aimAngle);
+    audio.playShoot();
   }
 
   // Render
