@@ -1,30 +1,29 @@
 // ─────────────────────────────────────────────────────────────
-// Colyseus Client — WebSocket Connection Manager
-// Handles room join, state sync, and message sending.
+// Colyseus Client — Thin Network Adapter
+// Per architecture: the client is a "dumb renderer" — it only
+// sends inputs and receives authoritative state.
+//
+// Phase 4: Projectiles are NOT synced via state. They use
+// event-driven "remote_shoot" broadcasts. Local player uses
+// client-side prediction; remote players get ghost events.
 // ─────────────────────────────────────────────────────────────
 
 import { Client, Room } from 'colyseus.js';
 import {
   CLIENT_MESSAGES,
-  TurretPosition,
+  SERVER_MESSAGES,
 } from '@space-shooter/shared';
 
 /** State shapes received from Colyseus auto-sync */
 export interface SyncedPlayerState {
   sessionId: string;
   position: string;
+  seatIndex: number;
   betAmount: number;
   credits: number;
   turretX: number;
   turretY: number;
-}
-
-export interface SyncedProjectileState {
-  id: string;
-  x: number;
-  y: number;
-  angle: number;
-  ownerId: string;
+  turretAngle: number;
 }
 
 export interface SyncedSpaceObjectState {
@@ -42,6 +41,7 @@ export interface PayoutEventData {
   objectType: string;
   payout: number;
   multiplier: number;
+  seatIndex: number;
 }
 
 /** Event callbacks */
@@ -49,13 +49,14 @@ export interface GameClientCallbacks {
   onStateChange: (state: GameRoomStateSnapshot) => void;
   onObjectDestroyed: (event: PayoutEventData) => void;
   onShotRejected: (reason: string) => void;
+  onOutOfFunds: (currentCredits: number, requiredBet: number) => void;
+  onRemoteShoot: (seatIndex: number, angle: number, lockedTargetId?: string) => void;
   onJoined: (sessionId: string) => void;
   onError: (error: Error) => void;
 }
 
 export interface GameRoomStateSnapshot {
   players: Map<string, SyncedPlayerState>;
-  projectiles: Map<string, SyncedProjectileState>;
   spaceObjects: Map<string, SyncedSpaceObjectState>;
   tick: number;
 }
@@ -66,9 +67,9 @@ export interface GameRoomStateSnapshot {
  * sends inputs and receives authoritative state.
  */
 export class GameClient {
-  private client: Client;
+  private readonly client: Client;
   private room: Room | null = null;
-  private callbacks: GameClientCallbacks;
+  private readonly callbacks: GameClientCallbacks;
   public sessionId: string = '';
 
   constructor(serverUrl: string, callbacks: GameClientCallbacks) {
@@ -76,7 +77,7 @@ export class GameClient {
     this.callbacks = callbacks;
   }
 
-  /** Connect to the game room */
+  /** Connect to game room */
   async joinRoom(): Promise<void> {
     try {
       this.room = await this.client.joinOrCreate('game_room');
@@ -84,11 +85,12 @@ export class GameClient {
       this.callbacks.onJoined(this.sessionId);
 
       // Listen for state changes
-      this.room.onStateChange((state: Record<string, unknown>) => {
-        this.callbacks.onStateChange(this.snapshotState(state));
+      this.room.onStateChange((state) => {
+        const snapshot = this.snapshotState(state as unknown as Record<string, unknown>);
+        this.callbacks.onStateChange(snapshot);
       });
 
-      // Listen for object destroyed broadcasts
+      // Listen for object destroyed
       this.room.onMessage('objectDestroyed', (data: PayoutEventData) => {
         this.callbacks.onObjectDestroyed(data);
       });
@@ -98,18 +100,39 @@ export class GameClient {
         this.callbacks.onShotRejected(data.reason);
       });
 
+      // Listen for out of funds
+      this.room.onMessage('outOfFunds', (data: { currentCredits: number; requiredBet: number }) => {
+        this.callbacks.onOutOfFunds(data.currentCredits, data.requiredBet);
+      });
+
+      // Listen for remote shoot (ghost projectile events)
+      this.room.onMessage(SERVER_MESSAGES.REMOTE_SHOOT, (data: { seatIndex: number; angle: number; lockedTargetId?: string }) => {
+        this.callbacks.onRemoteShoot(data.seatIndex, data.angle, data.lockedTargetId);
+      });
+
     } catch (err) {
       this.callbacks.onError(err instanceof Error ? err : new Error(String(err)));
     }
   }
 
   /** Send fire weapon message */
-  fireWeapon(angle: number, betAmount: number): void {
+  fireWeapon(angle: number, betAmount: number, lockedTargetId?: string): void {
     if (!this.room) return;
-    this.room.send(CLIENT_MESSAGES.FIRE_WEAPON, {
+    const msg: Record<string, unknown> = {
       type: CLIENT_MESSAGES.FIRE_WEAPON,
       angle,
       betAmount,
+    };
+    if (lockedTargetId) msg['lockedTargetId'] = lockedTargetId;
+    this.room.send(CLIENT_MESSAGES.FIRE_WEAPON, msg);
+  }
+
+  /** Send pointer move (aim angle) for remote turret sync */
+  sendPointerMove(angle: number): void {
+    if (!this.room) return;
+    this.room.send(CLIENT_MESSAGES.POINTER_MOVE, {
+      type: CLIENT_MESSAGES.POINTER_MOVE,
+      angle,
     });
   }
 
@@ -132,9 +155,8 @@ export class GameClient {
 
   /** Convert Colyseus state to a plain snapshot */
   private snapshotState(state: Record<string, unknown>): GameRoomStateSnapshot {
-    const s = state as Record<string, unknown>;
+    const s = state;
     const players = new Map<string, SyncedPlayerState>();
-    const projectiles = new Map<string, SyncedProjectileState>();
     const spaceObjects = new Map<string, SyncedSpaceObjectState>();
 
     // Convert MapSchema → plain Map
@@ -142,25 +164,14 @@ export class GameClient {
     if (playerMap) {
       playerMap.forEach((p: Record<string, unknown>, key: string) => {
         players.set(key, {
-          sessionId: String(p['sessionId'] ?? ''),
-          position: String(p['position'] ?? ''),
+          sessionId: typeof p['sessionId'] === 'string' ? p['sessionId'] : '',
+          position: typeof p['position'] === 'string' ? p['position'] : '',
+          seatIndex: Number(p['seatIndex'] ?? 0),
           betAmount: Number(p['betAmount'] ?? 1),
           credits: Number(p['credits'] ?? 0),
           turretX: Number(p['turretX'] ?? 0),
           turretY: Number(p['turretY'] ?? 0),
-        });
-      });
-    }
-
-    const projMap = s['projectiles'] as Map<string, Record<string, unknown>> | undefined;
-    if (projMap) {
-      projMap.forEach((p: Record<string, unknown>, key: string) => {
-        projectiles.set(key, {
-          id: String(p['id'] ?? ''),
-          x: Number(p['x'] ?? 0),
-          y: Number(p['y'] ?? 0),
-          angle: Number(p['angle'] ?? 0),
-          ownerId: String(p['ownerId'] ?? ''),
+          turretAngle: Number(p['turretAngle'] ?? 0),
         });
       });
     }
@@ -169,10 +180,10 @@ export class GameClient {
     if (objMap) {
       objMap.forEach((o: Record<string, unknown>, key: string) => {
         spaceObjects.set(key, {
-          id: String(o['id'] ?? ''),
+          id: typeof o['id'] === 'string' ? o['id'] : '',
           x: Number(o['x'] ?? 0),
           y: Number(o['y'] ?? 0),
-          objectType: String(o['objectType'] ?? ''),
+          objectType: typeof o['objectType'] === 'string' ? o['objectType'] : '',
           multiplier: Number(o['multiplier'] ?? 1),
         });
       });
@@ -180,7 +191,6 @@ export class GameClient {
 
     return {
       players,
-      projectiles,
       spaceObjects,
       tick: Number(s['tick'] ?? 0),
     };

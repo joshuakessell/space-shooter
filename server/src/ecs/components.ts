@@ -17,19 +17,39 @@ export interface VelocityComponent {
   vy: number;
 }
 
+// ─── Path Types ───
+
+/** Supported path evaluation strategies */
+export type PathType = 'bezier' | 'sine' | 'linear';
+
+/**
+ * Deterministic path component (server-only — NEVER synced to clients).
+ * Drives time-normalized pathing via PathMath evaluators.
+ */
+export interface PathComponent {
+  /** Curve evaluation strategy */
+  readonly pathType: PathType;
+  /** Control points for the curve (2=linear, 3=quadratic, 4=cubic Bézier) */
+  readonly controlPoints: readonly IVector2[];
+  /** Total time in milliseconds to traverse the path */
+  readonly duration: number;
+  /** Milliseconds elapsed since spawn (advanced by MovementSystem) */
+  timeAlive: number;
+  /** Formation offset added after curve evaluation (for V-formations, etc.) */
+  readonly offset: IVector2;
+  /** Sine-wave amplitude (only used when pathType='sine') */
+  readonly sineAmplitude: number;
+  /** Sine-wave frequency (only used when pathType='sine') */
+  readonly sineFrequency: number;
+}
+
+// ─── Game Entity Components ───
+
 /** Space object data attached to enemy entities */
 export interface SpaceObjectComponent {
   readonly type: SpaceObjectType;
   readonly multiplier: number;
   readonly destroyProbability: number;
-  /** Index into the path waypoints array */
-  pathIndex: number;
-  /** Progress [0..1] between current and next waypoint */
-  pathProgress: number;
-  /** The full path this object follows */
-  readonly path: readonly IVector2[];
-  /** Speed along the path (pixels per second) */
-  readonly speed: number;
   /**
    * Hidden absorbed credits from failed hits (Piñata mechanic).
    * CRITICAL SECURITY: This value is NEVER synced to clients
@@ -54,6 +74,8 @@ export interface ProjectileComponent {
   angle: number;
   /** Number of wall bounces remaining before expiry */
   bouncesRemaining: number;
+  /** Optional lock-on target entity ID (homing + piercing) */
+  lockedTargetId?: number;
 }
 
 /** Turret data tied to a player */
@@ -77,6 +99,8 @@ export interface FireIntentComponent {
   readonly playerId: string;
   readonly angle: number;
   readonly betAmount: number;
+  /** Optional lock-on target entity ID */
+  readonly lockedTargetId?: number;
 }
 
 // ─── Component Store Types ───

@@ -1,46 +1,67 @@
 // ─────────────────────────────────────────────────────────────
-// Spawn System — Space Object Wave Management
+// Spawn System — Wave-Driven Space Object Spawning
+// ─────────────────────────────────────────────────────────────
+// Delegates wave selection and path generation to WaveManager.
+// Processes SpawnRequests (including staggered delays) to create
+// ECS entities with PathComponent for curve-based movement.
+//
 // CONFIG-DRIVEN: All spawn rates, speeds, and types from
 // GameBalanceConfig via the objectTypes map.
 // ─────────────────────────────────────────────────────────────
 
 import {
-  GAME_WIDTH,
-  GAME_HEIGHT,
   MAX_SPACE_OBJECTS,
   SPAWN_MIN_INTERVAL_TICKS,
   SPAWN_MAX_INTERVAL_TICKS,
-  OBJECT_MIN_SPEED,
-  OBJECT_MAX_SPEED,
   SpaceObjectType,
 } from '@space-shooter/shared';
-import type { IVector2 } from '@space-shooter/shared';
 import type { World } from '../World.js';
 import type { IRngService } from '../../services/CsprngService.js';
 import type { IGameBalanceConfig, IObjectTypeConfig } from '../../config/GameBalanceConfig.js';
+import { WaveManager } from '../../services/WaveManager.js';
+import type { SpawnRequest } from '../../services/WaveManager.js';
 
 /**
  * Manages the spawning of space objects onto the playing field.
- * Objects spawn from off-screen edges and follow winding paths.
+ * Delegates to WaveManager for formation-based wave generation.
  * All multipliers, radii, and spawn weights are read from config.
  */
 export class SpawnSystem {
   private ticksUntilNextSpawn = 0;
+  private readonly waveManager: WaveManager;
+
+  /** Pending spawn requests with remaining delay ticks */
+  private readonly pendingSpawns: Array<{ request: SpawnRequest; remainingTicks: number }> = [];
 
   constructor(
     private readonly rng: IRngService,
     private readonly config: IGameBalanceConfig,
   ) {
     this.ticksUntilNextSpawn = SPAWN_MIN_INTERVAL_TICKS;
+    this.waveManager = new WaveManager(rng);
   }
 
   /**
-   * Called every tick. Decrements spawn timer and creates
-   * new space objects when the timer expires.
+   * Called every tick. Manages wave timing, processes pending
+   * delayed spawns, and creates entities with PathComponents.
    */
   update(world: World): void {
-    this.ticksUntilNextSpawn--;
+    // ─── Process pending delayed spawns ───
+    for (let i = this.pendingSpawns.length - 1; i >= 0; i--) {
+      const pending = this.pendingSpawns[i];
+      pending.remainingTicks--;
 
+      if (pending.remainingTicks <= 0) {
+        // Check capacity before spawning
+        if (world.spaceObjects.size < MAX_SPACE_OBJECTS) {
+          this.instantiateSpawnRequest(world, pending.request);
+        }
+        this.pendingSpawns.splice(i, 1);
+      }
+    }
+
+    // ─── Wave timer ───
+    this.ticksUntilNextSpawn--;
     if (this.ticksUntilNextSpawn > 0) return;
 
     // Check capacity
@@ -49,36 +70,74 @@ export class SpawnSystem {
       return;
     }
 
-    // Pick a random type via weighted selection (config-driven)
-    const type = this.selectWeightedType();
-    const objConfig = this.config.objectTypes[type];
+    // Select and generate a wave
+    const waveType = this.waveManager.selectWaveType();
+    const requests = this.waveManager.generateWave(waveType);
 
-    // Generate a winding path
-    const path = this.generatePath();
-    const speed = this.rng.randomFloat(OBJECT_MIN_SPEED, OBJECT_MAX_SPEED);
+    // Queue spawn requests (some may have delay > 0)
+    for (const request of requests) {
+      if (request.delayTicks <= 0) {
+        // Spawn immediately
+        if (world.spaceObjects.size < MAX_SPACE_OBJECTS) {
+          this.instantiateSpawnRequest(world, request);
+        }
+      } else {
+        // Queue for later
+        this.pendingSpawns.push({
+          request,
+          remainingTicks: request.delayTicks,
+        });
+      }
+    }
 
-    // Create the entity
-    const entityId = world.createEntity();
-
-    world.positions.set(entityId, { x: path[0].x, y: path[0].y });
-    world.spaceObjects.set(entityId, {
-      type,
-      multiplier: objConfig.multiplier,
-      destroyProbability: objConfig.destroyProbability,
-      pathIndex: 0,
-      pathProgress: 0,
-      path,
-      speed,
-      absorbedCredits: 0,  // Piñata: starts at zero, incremented on missed hits
-      isDead: false,        // First-kill mutex: set true on successful RNG roll
-    });
-    world.bounds.set(entityId, { radius: objConfig.collisionRadius });
-
-    // Schedule next spawn
+    // Schedule next wave
     this.ticksUntilNextSpawn = this.rng.randomRange(
       SPAWN_MIN_INTERVAL_TICKS,
       SPAWN_MAX_INTERVAL_TICKS + 1,
     );
+  }
+
+  /**
+   * Instantiate a single SpawnRequest into the World.
+   * Creates entity with Position, SpaceObject, Path, and Bounds components.
+   */
+  private instantiateSpawnRequest(world: World, request: SpawnRequest): void {
+    // For RANDOM_SINGLE, override the placeholder type with weighted selection
+    const type = request.type === SpaceObjectType.ASTEROID && request.delayTicks === 0
+      ? this.selectWeightedType()
+      : request.type;
+
+    const objConfig = this.config.objectTypes[type];
+
+    // Create the entity
+    const entityId = world.createEntity();
+
+    // Initial position = first control point + offset
+    const startPt = request.controlPoints[0];
+    world.positions.set(entityId, {
+      x: startPt.x + request.offset.x,
+      y: startPt.y + request.offset.y,
+    });
+
+    world.spaceObjects.set(entityId, {
+      type,
+      multiplier: objConfig.multiplier,
+      destroyProbability: objConfig.destroyProbability,
+      absorbedCredits: 0,
+      isDead: false,
+    });
+
+    world.paths.set(entityId, {
+      pathType: request.pathType,
+      controlPoints: request.controlPoints,
+      duration: request.duration,
+      timeAlive: 0,
+      offset: request.offset,
+      sineAmplitude: request.sineAmplitude,
+      sineFrequency: request.sineFrequency,
+    });
+
+    world.bounds.set(entityId, { radius: objConfig.collisionRadius });
   }
 
   /**
@@ -102,56 +161,9 @@ export class SpawnSystem {
     return SpaceObjectType.ASTEROID; // fallback
   }
 
-  /**
-   * Generate a winding path from one edge to another.
-   * Creates 5-8 waypoints that snake through the play area.
-   */
-  private generatePath(): IVector2[] {
-    const path: IVector2[] = [];
-    const numWaypoints = this.rng.randomRange(5, 9);
-
-    // Pick entry edge (0=top, 1=right, 2=bottom, 3=left)
-    const entryEdge = this.rng.randomRange(0, 4);
-    // Exit from opposite-ish edge
-    const exitEdge = (entryEdge + 2 + this.rng.randomRange(-1, 2)) % 4;
-
-    // Start point on entry edge
-    path.push(this.pointOnEdge(entryEdge));
-
-    // Intermediate winding waypoints
-    for (let i = 1; i < numWaypoints - 1; i++) {
-      const margin = 100;
-      path.push({
-        x: margin + this.rng.randomFloat(0, GAME_WIDTH - 2 * margin),
-        y: margin + this.rng.randomFloat(0, GAME_HEIGHT - 2 * margin),
-      });
-    }
-
-    // End point on exit edge
-    path.push(this.pointOnEdge(exitEdge));
-
-    return path;
-  }
-
-  /** Generate a random point on the specified screen edge */
-  private pointOnEdge(edge: number): IVector2 {
-    const margin = 50; // Spawn slightly off-screen
-    switch (edge) {
-      case 0: // top
-        return { x: this.rng.randomFloat(0, GAME_WIDTH), y: -margin };
-      case 1: // right
-        return { x: GAME_WIDTH + margin, y: this.rng.randomFloat(0, GAME_HEIGHT) };
-      case 2: // bottom
-        return { x: this.rng.randomFloat(0, GAME_WIDTH), y: GAME_HEIGHT + margin };
-      case 3: // left
-        return { x: -margin, y: this.rng.randomFloat(0, GAME_HEIGHT) };
-      default:
-        return { x: -margin, y: this.rng.randomFloat(0, GAME_HEIGHT) };
-    }
-  }
-
-  /** Reset spawn timer (e.g., on room restart) */
+  /** Reset spawn timer and clear pending spawns */
   reset(): void {
     this.ticksUntilNextSpawn = SPAWN_MIN_INTERVAL_TICKS;
+    this.pendingSpawns.length = 0;
   }
 }

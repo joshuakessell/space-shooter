@@ -14,19 +14,18 @@ import {
   MAX_PLAYERS,
   FIXED_TIMESTEP_MS,
   STARTING_CREDITS,
-  TURRET_POSITIONS,
+  SEAT_COORDINATES,
   TurretPosition,
   DEFAULT_BET,
-  MIN_BET,
-  MAX_BET,
+  BET_TIERS,
   CLIENT_MESSAGES,
+  SERVER_MESSAGES,
 } from '@space-shooter/shared';
-import type { FireWeaponMessage, ChangeBetMessage } from '@space-shooter/shared';
+import type { FireWeaponMessage, ChangeBetMessage, PointerMoveMessage } from '@space-shooter/shared';
 
 import {
   GameRoomState,
   PlayerSchema,
-  ProjectileSchema,
   SpaceObjectSchema,
 } from './schema/GameRoomState.js';
 
@@ -39,19 +38,14 @@ import { WalletManager } from '../services/WalletManager.js';
 import { RoomEconomyManager } from '../services/RoomEconomyManager.js';
 import { GAME_BALANCE_CONFIG } from '../config/GameBalanceConfig.js';
 
-/** All available turret positions */
-const ALL_POSITIONS: TurretPosition[] = [
-  TurretPosition.TOP_LEFT,
-  TurretPosition.TOP_MIDDLE,
-  TurretPosition.TOP_RIGHT,
-  TurretPosition.BOTTOM_LEFT,
-  TurretPosition.BOTTOM_MIDDLE,
-  TurretPosition.BOTTOM_RIGHT,
-];
+/**
+ * Seat management: 6 fixed seats indexed 0–5.
+ * null = vacant, string = occupied by sessionId.
+ */
+type SeatArray = (string | null)[];
 
-export class GameRoom extends Room<GameRoomState> {
+export class GameRoom extends Room<{ state: GameRoomState }> {
   maxClients = MAX_PLAYERS;
-  state = new GameRoomState();
 
   // ─── ECS + Services ───
   private world!: World;
@@ -64,8 +58,8 @@ export class GameRoom extends Room<GameRoomState> {
   // ─── Tick loop ───
   private simulationInterval: ReturnType<typeof setInterval> | null = null;
 
-  // ─── Player tracking ───
-  private readonly playerPositions: Map<string, TurretPosition> = new Map();
+  // ─── Seat management ───
+  private readonly seats: SeatArray = new Array<string | null>(MAX_PLAYERS).fill(null);
   private readonly playerBets: Map<string, number> = new Map();
 
   // ─── Message handlers ───
@@ -76,11 +70,16 @@ export class GameRoom extends Room<GameRoomState> {
     [CLIENT_MESSAGES.CHANGE_BET]: (client: Client, message: ChangeBetMessage) => {
       this.handleChangeBet(client, message);
     },
+    [CLIENT_MESSAGES.POINTER_MOVE]: (client: Client, message: PointerMoveMessage) => {
+      this.handlePointerMove(client, message);
+    },
   };
 
   // ─── Lifecycle ───
 
   onCreate(_options: Record<string, unknown>): void {
+    this.state = new GameRoomState();
+
     // Initialize services
     this.rng = new CsprngService();
     this.wallet = new WalletManager();
@@ -109,15 +108,18 @@ export class GameRoom extends Room<GameRoomState> {
   }
 
   onJoin(client: Client, _options: Record<string, unknown>): void {
-    // Assign turret position
-    const position = this.getAvailablePosition();
-    if (!position) {
-      client.leave(4000); // No positions available
+    // Assign the lowest available seat index
+    const seatIndex = this.getAvailableSeat();
+    if (seatIndex === -1) {
+      client.leave(4000); // No seats available
       return;
     }
 
-    this.playerPositions.set(client.sessionId, position);
+    this.seats[seatIndex] = client.sessionId;
     this.playerBets.set(client.sessionId, DEFAULT_BET);
+
+    // Get turret coordinates from seat
+    const coords = SEAT_COORDINATES[seatIndex];
 
     // Initialize wallet
     this.wallet.initPlayer(client.sessionId, STARTING_CREDITS);
@@ -127,28 +129,29 @@ export class GameRoom extends Room<GameRoomState> {
 
     // Create turret entity in ECS
     const turretId = this.world.createEntity();
-    const tpos = TURRET_POSITIONS[position];
-    this.world.positions.set(turretId, { x: tpos.x, y: tpos.y });
+    this.world.positions.set(turretId, { x: coords.x, y: coords.y });
     this.world.turrets.set(turretId, {
       playerId: client.sessionId,
-      position,
+      position: this.seatIndexToPosition(seatIndex),
     });
 
     // Add to Colyseus state
     const playerSchema = new PlayerSchema();
     playerSchema.sessionId = client.sessionId;
-    playerSchema.position = position;
+    playerSchema.position = this.seatIndexToPosition(seatIndex);
+    playerSchema.seatIndex = seatIndex;
     playerSchema.betAmount = DEFAULT_BET;
     playerSchema.credits = STARTING_CREDITS;
-    playerSchema.turretX = tpos.x;
-    playerSchema.turretY = tpos.y;
+    playerSchema.turretX = coords.x;
+    playerSchema.turretY = coords.y;
     this.state.players.set(client.sessionId, playerSchema);
 
-    console.log(`[GameRoom] Player ${client.sessionId} joined at ${position}`);
+    console.log(`[GameRoom] Player ${client.sessionId} joined at seat ${seatIndex} (${coords.x}, ${coords.y})`);
   }
 
   onLeave(client: Client, _code: CloseCode): void {
-    const position = this.playerPositions.get(client.sessionId);
+    // Free the seat
+    const seatIndex = this.seats.indexOf(client.sessionId);
 
     // Clean up turret entity
     for (const [entityId, turret] of this.world.turrets) {
@@ -164,13 +167,13 @@ export class GameRoom extends Room<GameRoomState> {
     // their server-side wallet even while offline.
     // The wallet survives until the player's seat reservation expires.
 
-    this.playerPositions.delete(client.sessionId);
+    if (seatIndex >= 0) this.seats[seatIndex] = null;
     this.playerBets.delete(client.sessionId);
     this.rtpEngine.removePlayer(client.sessionId);
     this.wallet.removePlayer(client.sessionId);
     this.state.players.delete(client.sessionId);
 
-    console.log(`[GameRoom] Player ${client.sessionId} left (was at ${position})`);
+    console.log(`[GameRoom] Player ${client.sessionId} left (was at seat ${seatIndex})`);
   }
 
   onDispose(): void {
@@ -190,23 +193,56 @@ export class GameRoom extends Room<GameRoomState> {
   private handleFireWeapon(client: Client, message: FireWeaponMessage): void {
     const betAmount = this.playerBets.get(client.sessionId) ?? DEFAULT_BET;
 
+    // ─── Security: Out-of-funds pre-check (fast-fail) ───
+    const balance = this.wallet.getBalance(client.sessionId);
+    if (balance < betAmount) {
+      client.send(SERVER_MESSAGES.OUT_OF_FUNDS, {
+        type: SERVER_MESSAGES.OUT_OF_FUNDS,
+        currentCredits: balance,
+        requiredBet: betAmount,
+      });
+      return; // Do NOT create a fire intent
+    }
+
+    // Parse optional lock-on target
+    const lockedTargetId = message.lockedTargetId
+      ? Number(message.lockedTargetId)
+      : undefined;
+
     // Queue a fire intent for the next tick (never mutate ECS mid-tick)
     const intentId = this.world.createEntity();
-    this.world.fireIntents.set(intentId, {
+    const intent: import('../ecs/components.js').FireIntentComponent = {
       playerId: client.sessionId,
       angle: message.angle,
       betAmount,
-    });
+    };
+    if (lockedTargetId !== undefined) {
+      (intent as { lockedTargetId?: number }).lockedTargetId = lockedTargetId;
+    }
+    this.world.fireIntents.set(intentId, intent);
   }
 
   private handleChangeBet(client: Client, message: ChangeBetMessage): void {
-    const amount = Math.max(MIN_BET, Math.min(MAX_BET, Math.floor(message.amount)));
-    this.playerBets.set(client.sessionId, amount);
+    // Snap to nearest valid bet tier
+    const requestedAmount = Math.floor(message.amount);
+    let bestTier: number = BET_TIERS[0];
+    for (const tier of BET_TIERS) {
+      if (tier <= requestedAmount) bestTier = tier;
+    }
+
+    this.playerBets.set(client.sessionId, bestTier);
 
     // Update Colyseus state for UI sync
     const player = this.state.players.get(client.sessionId);
     if (player) {
-      player.betAmount = amount;
+      player.betAmount = bestTier;
+    }
+  }
+
+  private handlePointerMove(client: Client, message: PointerMoveMessage): void {
+    const player = this.state.players.get(client.sessionId);
+    if (player) {
+      player.turretAngle = message.angle;
     }
   }
 
@@ -214,28 +250,15 @@ export class GameRoom extends Room<GameRoomState> {
 
   private simulateTick(): void {
     // Gather active player session IDs for hot-seat rotation
-    const activePlayers = Array.from(this.playerPositions.keys());
+    const activePlayers = this.seats.filter((s): s is string => s !== null);
 
     // Run the full ECS pipeline
     const result = this.systemRunner.tick(activePlayers);
 
     // ─── Sync ECS state → Colyseus schema (delta broadcasting) ───
     // NOTE: absorbedCredits and isDead are NEVER synced to clients.
-
-    // Update projectiles
-    this.state.projectiles.clear();
-    for (const [entityId, proj] of this.world.projectiles) {
-      const pos = this.world.positions.get(entityId);
-      if (!pos) continue;
-
-      const schema = new ProjectileSchema();
-      schema.id = String(entityId);
-      schema.x = Math.round(pos.x * 10) / 10; // 0.1px precision
-      schema.y = Math.round(pos.y * 10) / 10;
-      schema.angle = proj.angle;
-      schema.ownerId = proj.ownerId;
-      this.state.projectiles.set(String(entityId), schema);
-    }
+    // NOTE: Projectiles are NOT synced via schema — they use
+    //       event-driven "remote_shoot" broadcasts instead.
 
     // Update space objects
     // SECURITY: Only sync type, position, multiplier. Never absorbedCredits.
@@ -263,14 +286,31 @@ export class GameRoom extends Room<GameRoomState> {
 
     // ─── Broadcast events via messages ───
 
+    // Remote shoot events (ghost projectile visuals for other clients)
+    for (const proj of result.newProjectiles) {
+      const seatIndex = this.seats.indexOf(proj.ownerId);
+      const targetClient = this.clients.find(c => c.sessionId === proj.ownerId);
+      if (targetClient && seatIndex >= 0) {
+        this.broadcast(SERVER_MESSAGES.REMOTE_SHOOT, {
+          type: SERVER_MESSAGES.REMOTE_SHOOT,
+          sessionId: proj.ownerId,
+          seatIndex,
+          angle: proj.angle,
+          lockedTargetId: proj.lockedTargetId !== undefined ? String(proj.lockedTargetId) : undefined,
+        }, { except: targetClient });
+      }
+    }
+
     // Payouts (object destroyed events)
     for (const payout of result.payouts) {
+      const seatIndex = this.seats.indexOf(payout.playerId);
       this.broadcast('objectDestroyed', {
         objectId: payout.objectId,
         playerId: payout.playerId,
         objectType: payout.objectType,
         payout: payout.payout,
         multiplier: payout.multiplier,
+        seatIndex,
       });
     }
 
@@ -289,11 +329,20 @@ export class GameRoom extends Room<GameRoomState> {
 
   // ─── Helpers ───
 
-  private getAvailablePosition(): TurretPosition | null {
-    const taken = new Set(this.playerPositions.values());
-    for (const pos of ALL_POSITIONS) {
-      if (!taken.has(pos)) return pos;
+  /** Get the lowest available seat index, or -1 if full */
+  private getAvailableSeat(): number {
+    for (let i = 0; i < this.seats.length; i++) {
+      if (this.seats[i] === null) return i;
     }
-    return null;
+    return -1;
+  }
+
+  /** Map seat index to TurretPosition enum value */
+  private seatIndexToPosition(seatIndex: number): TurretPosition {
+    const positions: TurretPosition[] = [
+      TurretPosition.BOTTOM_LEFT, TurretPosition.BOTTOM_MIDDLE, TurretPosition.BOTTOM_RIGHT,
+      TurretPosition.TOP_LEFT, TurretPosition.TOP_MIDDLE, TurretPosition.TOP_RIGHT,
+    ];
+    return positions[seatIndex] ?? TurretPosition.BOTTOM_LEFT;
   }
 }

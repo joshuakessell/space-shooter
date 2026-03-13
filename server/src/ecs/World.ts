@@ -13,6 +13,7 @@ import type {
   BoundsComponent,
   PendingDestroyComponent,
   FireIntentComponent,
+  PathComponent,
   ComponentStore,
 } from './components.js';
 
@@ -35,6 +36,7 @@ export class World {
   public readonly bounds: ComponentStore<BoundsComponent> = new Map();
   public readonly pendingDestroy: ComponentStore<PendingDestroyComponent> = new Map();
   public readonly fireIntents: ComponentStore<FireIntentComponent> = new Map();
+  public readonly paths: ComponentStore<PathComponent> = new Map();
 
   /** Current simulation tick */
   public currentTick = 0;
@@ -72,6 +74,7 @@ export class World {
     this.bounds.delete(id);
     this.pendingDestroy.delete(id);
     this.fireIntents.delete(id);
+    this.paths.delete(id);
     this.activeEntities.delete(id);
     this.recycledIds.push(id);
   }
@@ -109,6 +112,7 @@ export class World {
     this.bounds.clear();
     this.pendingDestroy.clear();
     this.fireIntents.clear();
+    this.paths.clear();
     this.activeEntities.clear();
     this.recycledIds.length = 0;
     this.nextEntityId = 1;

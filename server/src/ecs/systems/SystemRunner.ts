@@ -8,12 +8,12 @@
 import type { EntityId, IPayoutEvent } from '@space-shooter/shared';
 import {
   FIXED_TIMESTEP_SEC,
-  PROJECTILE_SPEED,
+  FIXED_TIMESTEP_MS,
   PROJECTILE_RADIUS,
   MAX_PROJECTILES_PER_PLAYER,
+  MAX_BOUNCES,
+  BET_TIERS,
   TURRET_POSITIONS,
-  MIN_BET,
-  MAX_BET,
 } from '@space-shooter/shared';
 import type { World } from '../World.js';
 import type { FireIntentComponent } from '../components.js';
@@ -45,6 +45,7 @@ export interface NewProjectileInfo {
   readonly x: number;
   readonly y: number;
   readonly angle: number;
+  readonly lockedTargetId?: number;
 }
 
 export interface RejectedShot {
@@ -115,8 +116,8 @@ export class SystemRunner {
     // ─── 3. Spawn: Create new space objects ───
     this.spawnSystem.update(this.world);
 
-    // ─── 4. Movement: Advance space objects along paths ───
-    movementSystem(this.world, delta);
+    // ─── 4. Movement: Advance space objects along curves ───
+    movementSystem(this.world, FIXED_TIMESTEP_MS);
 
     // ─── 5. Projectile: Move lasers + ricochets ───
     projectileSystem(this.world, delta);
@@ -152,11 +153,11 @@ export class SystemRunner {
    * Process a single fire intent: validate, deduct bet, create projectile entity.
    */
   private processFireIntent(intent: FireIntentComponent): NewProjectileInfo | RejectedShot {
-    const { playerId, angle, betAmount } = intent;
+    const { playerId, angle, betAmount, lockedTargetId } = intent;
 
-    // Validate bet range
-    if (betAmount < MIN_BET || betAmount > MAX_BET) {
-      return { playerId, reason: `Bet must be between ${MIN_BET} and ${MAX_BET}` };
+    // Validate bet is a valid tier
+    if (!(BET_TIERS as readonly number[]).includes(betAmount)) {
+      return { playerId, reason: `Bet must be a valid tier: ${BET_TIERS.join(', ')}` };
     }
 
     // Check projectile cap for this player
@@ -190,14 +191,22 @@ export class SystemRunner {
     // Create projectile entity
     const entityId = this.world.createEntity();
     this.world.positions.set(entityId, { x: turretX, y: turretY });
-    this.world.projectiles.set(entityId, {
+    const projData: import('../components.js').ProjectileComponent = {
       ownerId: playerId,
       betAmount,
       angle,
-      bouncesRemaining: 10,
-    });
+      bouncesRemaining: MAX_BOUNCES,
+    };
+    if (lockedTargetId !== undefined) {
+      projData.lockedTargetId = lockedTargetId;
+    }
+    this.world.projectiles.set(entityId, projData);
     this.world.bounds.set(entityId, { radius: PROJECTILE_RADIUS });
 
-    return { entityId, ownerId: playerId, x: turretX, y: turretY, angle };
+    const result: NewProjectileInfo = { entityId, ownerId: playerId, x: turretX, y: turretY, angle };
+    if (lockedTargetId !== undefined) {
+      (result as { lockedTargetId?: number }).lockedTargetId = lockedTargetId;
+    }
+    return result;
   }
 }

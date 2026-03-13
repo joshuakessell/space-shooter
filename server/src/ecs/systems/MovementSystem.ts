@@ -1,76 +1,73 @@
 // ─────────────────────────────────────────────────────────────
-// Movement System — Moves Space Objects Along Paths
-// Pure system: no side effects, no engine imports.
+// Movement System — Curve-Based Deterministic Pathing
+// ─────────────────────────────────────────────────────────────
+// Advances space objects along Bézier/sine/linear paths using
+// time-normalized evaluation (t = timeAlive / duration).
+//
+// PERFORMANCE: Single reusable scratch point — zero allocations
+// per tick inside the hot loop.
 // ─────────────────────────────────────────────────────────────
 
 import type { World } from '../World.js';
+import type { MutablePoint } from '../../spatial/PathMath.js';
+import { evaluateBezier, evaluateSinePath } from '../../spatial/PathMath.js';
+
+/** Reusable scratch point — prevents GC pressure in the hot loop */
+const scratch: MutablePoint = { x: 0, y: 0 };
 
 /**
- * Advances space objects along their predefined winding paths.
- * Each object has a path (array of waypoints) and a speed.
- * Objects move from waypoint to waypoint; when reaching the end,
- * they are tagged for destruction (exited the screen).
+ * Advances all entities with a PathComponent along their curves.
  *
- * Deterministic: same input state + delta → same output state.
+ * For each entity:
+ * 1. Advance timeAlive by deltaMs
+ * 2. Calculate t = timeAlive / duration (clamped to [0, 1])
+ * 3. If t >= 1.0 → tag for PendingDestroy (path complete, no payout)
+ * 4. Otherwise → evaluate path curve, add offset, write to PositionComponent
+ *
+ * Deterministic: same state + deltaMs → same output.
  */
-export function movementSystem(world: World, deltaSec: number): void {
-  for (const [entityId, spaceObj] of world.spaceObjects) {
+export function movementSystem(world: World, deltaMs: number): void {
+  for (const [entityId, path] of world.paths) {
+    if (world.pendingDestroy.has(entityId)) continue;
+
     const pos = world.positions.get(entityId);
-    if (!pos || world.pendingDestroy.has(entityId)) continue;
+    if (!pos) continue;
 
-    const path = spaceObj.path;
-    if (path.length < 2) continue;
+    // Advance time
+    path.timeAlive += deltaMs;
 
-    // Calculate distance to travel this tick
-    const distanceToTravel = spaceObj.speed * deltaSec;
+    // Normalized progress [0, 1]
+    const t = path.timeAlive / path.duration;
 
-    // Current segment
-    const fromIdx = spaceObj.pathIndex;
-    const toIdx = fromIdx + 1;
-
-    if (toIdx >= path.length) {
-      // Reached end of path — mark for removal
+    if (t >= 1) {
+      // Path complete — target survived and exited. No payout.
       world.pendingDestroy.set(entityId, { markedAtTick: world.currentTick });
       continue;
     }
 
-    const from = path[fromIdx];
-    const to = path[toIdx];
+    // Evaluate curve position into scratch point
+    switch (path.pathType) {
+      case 'bezier':
+      case 'linear':
+        evaluateBezier(t, path.controlPoints, scratch);
+        break;
 
-    // Segment length
-    const dx = to.x - from.x;
-    const dy = to.y - from.y;
-    const segmentLength = Math.sqrt(dx * dx + dy * dy);
-
-    if (segmentLength === 0) {
-      // Degenerate segment — skip to next
-      spaceObj.pathIndex++;
-      continue;
+      case 'sine':
+        // Sine path: first and last control points are start/end,
+        // amplitude and frequency drive the wave shape
+        evaluateSinePath(
+          t,
+          path.controlPoints[0],
+          path.controlPoints.at(-1)!,
+          path.sineAmplitude,
+          path.sineFrequency,
+          scratch,
+        );
+        break;
     }
 
-    // Advance progress
-    const progressDelta = distanceToTravel / segmentLength;
-    spaceObj.pathProgress += progressDelta;
-
-    // Check if we've passed the current waypoint
-    if (spaceObj.pathProgress >= 1) {
-      spaceObj.pathIndex++;
-      spaceObj.pathProgress = 0;
-
-      if (spaceObj.pathIndex + 1 >= path.length) {
-        // Reached end of path
-        world.pendingDestroy.set(entityId, { markedAtTick: world.currentTick });
-        continue;
-      }
-
-      // Snap to the waypoint
-      const waypoint = path[spaceObj.pathIndex];
-      pos.x = waypoint.x;
-      pos.y = waypoint.y;
-    } else {
-      // Interpolate between waypoints
-      pos.x = from.x + dx * spaceObj.pathProgress;
-      pos.y = from.y + dy * spaceObj.pathProgress;
-    }
+    // Apply formation offset + write to position
+    pos.x = scratch.x + path.offset.x;
+    pos.y = scratch.y + path.offset.y;
   }
 }

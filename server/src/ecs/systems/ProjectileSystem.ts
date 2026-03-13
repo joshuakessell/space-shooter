@@ -1,28 +1,100 @@
 // ─────────────────────────────────────────────────────────────
-// Projectile System — Moves Lasers & Handles Wall Ricochets
-// Pure system: deterministic trajectory calculation.
+// Projectile System — Moves Lasers, Handles Ricochets & Homing
+// ─────────────────────────────────────────────────────────────
+// PERFORMANCE: Homing uses vector lerp (normalized direction
+// interpolation), NOT atan2, to avoid expensive trig on
+// thousands of bullets per tick.
 // ─────────────────────────────────────────────────────────────
 
-import { GAME_WIDTH, GAME_HEIGHT, PROJECTILE_SPEED } from '@space-shooter/shared';
+import { GAME_WIDTH, GAME_HEIGHT, PROJECTILE_SPEED, HOMING_TURN_RATE } from '@space-shooter/shared';
 import type { World } from '../World.js';
-
-/** Maximum bounces before a projectile expires */
-const MAX_BOUNCES = 10;
+import type { ProjectileComponent } from '../components.js';
 
 /**
- * Moves all active projectiles in straight lines and bounces
- * them off the screen edges (ricochet mechanic).
+ * Steer a homing projectile toward its locked target.
+ * Uses direction vector lerp — no expensive atan2.
+ * Returns true if homing was applied, false if target is lost.
+ */
+function applyHomingSteering(
+  proj: ProjectileComponent,
+  pos: { x: number; y: number },
+  world: World,
+  speed: number,
+  deltaSec: number,
+): boolean {
+  if (proj.lockedTargetId === undefined) return false;
+
+  const targetPos = world.positions.get(proj.lockedTargetId);
+  const targetAlive = targetPos !== undefined
+    && !world.pendingDestroy.has(proj.lockedTargetId)
+    && world.spaceObjects.has(proj.lockedTargetId);
+
+  if (!targetAlive) {
+    // Target lost — clear lock, caller will use standard mode
+    delete proj.lockedTargetId;
+    return false;
+  }
+
+  // Current direction from angle
+  const curDirX = Math.cos(proj.angle);
+  const curDirY = Math.sin(proj.angle);
+
+  // Desired direction (projectile → target), normalized
+  const toTargetX = targetPos.x - pos.x;
+  const toTargetY = targetPos.y - pos.y;
+  const dist = Math.hypot(toTargetX, toTargetY);
+
+  if (dist > 1) {
+    const desiredDirX = toTargetX / dist;
+    const desiredDirY = toTargetY / dist;
+
+    // Lerp direction toward target
+    let newDirX = curDirX + (desiredDirX - curDirX) * HOMING_TURN_RATE;
+    let newDirY = curDirY + (desiredDirY - curDirY) * HOMING_TURN_RATE;
+
+    // Re-normalize
+    const newLen = Math.hypot(newDirX, newDirY);
+    if (newLen > 0.001) {
+      newDirX /= newLen;
+      newDirY /= newLen;
+    }
+
+    proj.angle = Math.atan2(newDirY, newDirX);
+  }
+
+  // Move in new direction (no bounce while homing)
+  pos.x += Math.cos(proj.angle) * speed * deltaSec;
+  pos.y += Math.sin(proj.angle) * speed * deltaSec;
+
+  // Clamp to screen bounds
+  pos.x = Math.max(0, Math.min(GAME_WIDTH, pos.x));
+  pos.y = Math.max(0, Math.min(GAME_HEIGHT, pos.y));
+
+  return true;
+}
+
+/**
+ * Moves all active projectiles. Two modes:
  *
- * When a projectile exhausts its bounces, it is tagged for destruction.
+ * 1. **Standard:** Straight-line + wall bounce (ricochet mechanic).
+ * 2. **Homing:** If `lockedTargetId` is set and target exists,
+ *    steers toward target using direction vector lerp.
  *
  * Deterministic: same state + delta → same result.
  */
 export function projectileSystem(world: World, deltaSec: number): void {
+  const speed = PROJECTILE_SPEED;
+
   for (const [entityId, proj] of world.projectiles) {
     const pos = world.positions.get(entityId);
     if (!pos || world.pendingDestroy.has(entityId)) continue;
 
-    const speed = PROJECTILE_SPEED;
+    // Try homing mode first
+    if (applyHomingSteering(proj, pos, world, speed, deltaSec)) {
+      continue;
+    }
+
+    // ─── Standard mode (straight-line + ricochet) ───
     const dx = Math.cos(proj.angle) * speed * deltaSec;
     const dy = Math.sin(proj.angle) * speed * deltaSec;
 
@@ -31,21 +103,18 @@ export function projectileSystem(world: World, deltaSec: number): void {
     let angle = proj.angle;
     let bounced = false;
 
-    // Wall bounce — left/right
     if (newX <= 0 || newX >= GAME_WIDTH) {
       angle = Math.PI - angle;
       newX = Math.max(0, Math.min(GAME_WIDTH, newX));
       bounced = true;
     }
 
-    // Wall bounce — top/bottom
     if (newY <= 0 || newY >= GAME_HEIGHT) {
       angle = -angle;
       newY = Math.max(0, Math.min(GAME_HEIGHT, newY));
       bounced = true;
     }
 
-    // Normalize angle to [0, 2π)
     angle = ((angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
 
     pos.x = newX;

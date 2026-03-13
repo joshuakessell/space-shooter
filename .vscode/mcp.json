@@ -6,6 +6,13 @@
       "args": [
         "/Applications/Phaser Editor 5.app/Contents/Resources/app/src/js/chatbot/mcp/server.js"
       ]
+    },
+    "pixellab": {
+      "url": "https://api.pixellab.ai/mcp",
+      "type": "http",
+      "headers": {
+        "Authorization": "Bearer 010672ce-421a-4fd5-a5bc-5d91065dbfcc"
+      }
     }
   }
 }

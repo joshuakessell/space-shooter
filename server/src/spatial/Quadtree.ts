@@ -73,7 +73,7 @@ export class Quadtree {
       let i = 0;
       while (i < this.entries.length) {
         const idx = this.getIndex(this.entries[i]);
-        if (idx !== -1) {
+        if (idx >= 0) {
           const [removed] = this.entries.splice(i, 1);
           this.nodes[idx].insert(removed);
         } else {
@@ -88,7 +88,7 @@ export class Quadtree {
     const index = this.getIndex(entry);
 
     if (this.nodes.length > 0) {
-      if (index !== -1) {
+      if (index >= 0) {
         this.nodes[index].query(entry, results);
       } else {
         // Entry spans multiple quadrants — check all children

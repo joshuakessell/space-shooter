@@ -18,16 +18,20 @@ export const FIXED_TIMESTEP_SEC = FIXED_TIMESTEP_MS / 1000; // 0.05s
 /** Maximum players per room */
 export const MAX_PLAYERS = 6;
 
-/** Betting limits */
-export const MIN_BET = 1;
-export const MAX_BET = 100;
-export const DEFAULT_BET = 1;
+/** Betting tiers — casino-standard discrete bet amounts */
+export const BET_TIERS = [10, 50, 100, 500, 1000] as const;
+export type BetTier = (typeof BET_TIERS)[number];
+
+/** Betting limits (derived from tiers) */
+export const MIN_BET = BET_TIERS[0];
+export const MAX_BET = BET_TIERS.at(-1)!;
+export const DEFAULT_BET = BET_TIERS[0];
 
 /** Target Return-to-Player percentage */
 export const TARGET_RTP = 0.98;
 
 /** Starting credits for new players */
-export const STARTING_CREDITS = 1000;
+export const STARTING_CREDITS = 10000;
 
 /** Projectile speed (pixels per second) */
 export const PROJECTILE_SPEED = 800;
@@ -62,6 +66,23 @@ export const TURRET_POSITIONS: Record<string, { x: number; y: number }> = {
   BOTTOM_RIGHT:  { x: 1680, y: 1020 },
 };
 
+/**
+ * Seat-indexed turret coordinates (seatIndex 0–5).
+ * 0=bottom-left, 1=bottom-middle, 2=bottom-right,
+ * 3=top-left, 4=top-middle, 5=top-right.
+ */
+export const SEAT_COORDINATES: readonly { readonly x: number; readonly y: number }[] = [
+  { x: 240,  y: 1020 }, // seat 0 — bottom-left
+  { x: 960,  y: 1020 }, // seat 1 — bottom-middle
+  { x: 1680, y: 1020 }, // seat 2 — bottom-right
+  { x: 240,  y: 60 },   // seat 3 — top-left
+  { x: 960,  y: 60 },   // seat 4 — top-middle
+  { x: 1680, y: 60 },   // seat 5 — top-right
+];
+
+/** Maximum wall bounces before a projectile expires */
+export const MAX_BOUNCES = 4;
+
 /** Object pool pre-allocation sizes */
 export const PROJECTILE_POOL_SIZE = 200;
 export const SPACE_OBJECT_POOL_SIZE = 50;
@@ -69,3 +90,16 @@ export const SPACE_OBJECT_POOL_SIZE = 50;
 /** Quadtree configuration */
 export const QUADTREE_MAX_OBJECTS = 10;
 export const QUADTREE_MAX_LEVELS = 5;
+
+/** Homing missile turn rate (lerp factor per tick, 0–1) */
+export const HOMING_TURN_RATE = 0.08;
+
+/** Seat colors — distinct hex color per seat (0–5) */
+export const SEAT_COLORS: readonly string[] = [
+  '#FF4444', // seat 0 — Red
+  '#4488FF', // seat 1 — Blue
+  '#44FF88', // seat 2 — Green
+  '#FFD700', // seat 3 — Gold
+  '#CC44FF', // seat 4 — Purple
+  '#FF8844', // seat 5 — Orange
+];

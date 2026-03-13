@@ -1,6 +1,10 @@
 // ─────────────────────────────────────────────────────────────
 // Game Room State Schema — Colyseus State Synchronization
 // Uses @colyseus/schema for efficient delta-state broadcasting.
+//
+// BANDWIDTH: Projectiles are NOT synced via schema. They use
+// event-driven "remote_shoot" broadcasts instead. Only space
+// objects, players, and tick counter live in state.
 // ─────────────────────────────────────────────────────────────
 
 import { Schema, type, MapSchema } from '@colyseus/schema';
@@ -9,19 +13,12 @@ import { Schema, type, MapSchema } from '@colyseus/schema';
 export class PlayerSchema extends Schema {
   @type('string') sessionId: string = '';
   @type('string') position: string = ''; // TurretPosition enum value
+  @type('number') seatIndex: number = 0; // Seat 0–5
   @type('number') betAmount: number = 1;
   @type('number') credits: number = 1000;
   @type('number') turretX: number = 0;
   @type('number') turretY: number = 0;
-}
-
-/** Projectile (laser) state synchronized to all clients */
-export class ProjectileSchema extends Schema {
-  @type('string') id: string = '';
-  @type('number') x: number = 0;
-  @type('number') y: number = 0;
-  @type('number') angle: number = 0;
-  @type('string') ownerId: string = '';
+  @type('number') turretAngle: number = 0; // Aim angle from pointer_move
 }
 
 /** Space object state synchronized to all clients */
@@ -36,7 +33,6 @@ export class SpaceObjectSchema extends Schema {
 /** Root game state containing all entity collections */
 export class GameRoomState extends Schema {
   @type({ map: PlayerSchema }) players = new MapSchema<PlayerSchema>();
-  @type({ map: ProjectileSchema }) projectiles = new MapSchema<ProjectileSchema>();
   @type({ map: SpaceObjectSchema }) spaceObjects = new MapSchema<SpaceObjectSchema>();
   @type('number') tick: number = 0;
 }

@@ -83,7 +83,7 @@ export const GAME_BALANCE_CONFIG: IGameBalanceConfig = {
   volatility: {
     phases: {
       [VolatilityPhase.EATING]:   0.7,
-      [VolatilityPhase.BASELINE]: 1.0,
+      [VolatilityPhase.BASELINE]: 1,
       [VolatilityPhase.FRENZY]:   1.5,
     },
     eatingToBaselineProfitRatio: 0.05,  // Exit EATING when profit < 5% of credits_in
@@ -99,13 +99,13 @@ export const GAME_BALANCE_CONFIG: IGameBalanceConfig = {
   },
 
   pinata: {
-    maxModifier: 3.0,    // Up to 3x boost as credits accumulate
+    maxModifier: 3,    // Up to 3x boost as credits accumulate
     curveExponent: 1.5,  // Between linear and quadratic
   },
 
   pity: {
     missThreshold: 30,
-    pityModifier: 2.0,
+    pityModifier: 2,
     appliesToMaxMultiplier: 10, // Only for targets ≤ 10x
   },
 

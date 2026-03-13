@@ -184,7 +184,7 @@ export class RtpEngine {
 
   /** Get hot-seat modifier for a specific player */
   private getHotSeatModifier(playerId: string): number {
-    if (this.hotSeatSessionId === null) return 1.0;
+    if (this.hotSeatSessionId === null) return 1;
     return playerId === this.hotSeatSessionId
       ? this.config.hotSeat.boostMultiplier
       : this.config.hotSeat.penaltyMultiplier;
@@ -209,21 +209,21 @@ export class RtpEngine {
     betAmount: number,
     absorbedCredits: number,
   ): number {
-    if (absorbedCredits <= 0) return 1.0;
+    if (absorbedCredits <= 0) return 1;
 
     // Max expected payout = the most a single hit could pay
     // Using the current bet × multiplier as reference
     const maxExpectedPayout = betAmount * multiplier;
-    if (maxExpectedPayout <= 0) return 1.0;
+    if (maxExpectedPayout <= 0) return 1;
 
     // Progress: how close absorbed credits are to max expected payout
-    const progress = Math.min(absorbedCredits / maxExpectedPayout, 1.0);
+    const progress = Math.min(absorbedCredits / maxExpectedPayout, 1);
 
     // Apply curve: linear → quadratic → sqrt depending on exponent
     const curved = Math.pow(progress, this.config.pinata.curveExponent);
 
     // Scale from 1.0 to maxModifier
-    const modifier = 1.0 + (this.config.pinata.maxModifier - 1.0) * curved;
+    const modifier = 1 + (this.config.pinata.maxModifier - 1) * curved;
 
     return Math.min(modifier, this.config.pinata.maxModifier);
   }
@@ -240,8 +240,8 @@ export class RtpEngine {
   private calculatePityModifier(playerId: string, targetMultiplier: number): number {
     const misses = this.consecutiveMisses.get(playerId) ?? 0;
 
-    if (misses < this.config.pity.missThreshold) return 1.0;
-    if (targetMultiplier > this.config.pity.appliesToMaxMultiplier) return 1.0;
+    if (misses < this.config.pity.missThreshold) return 1;
+    if (targetMultiplier > this.config.pity.appliesToMaxMultiplier) return 1;
 
     return this.config.pity.pityModifier;
   }

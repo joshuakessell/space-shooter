@@ -10,8 +10,9 @@ import type { TurretPosition, SpaceObjectType, IVector2 } from './types.js';
 /** Player fires a weapon from their turret */
 export interface FireWeaponMessage {
   readonly type: 'fireWeapon';
-  readonly angle: number;       // radians
-  readonly betAmount: number;   // credits wagered on this shot
+  readonly angle: number;                // radians
+  readonly betAmount: number;            // credits wagered on this shot
+  readonly lockedTargetId?: string;      // optional lock-on target entity ID
 }
 
 /** Player changes their bet amount */
@@ -26,11 +27,18 @@ export interface SelectPositionMessage {
   readonly position: TurretPosition;
 }
 
+/** Player aim angle update (throttled) */
+export interface PointerMoveMessage {
+  readonly type: 'pointerMove';
+  readonly angle: number; // radians
+}
+
 /** Union type for all client → server messages */
 export type ClientMessage =
   | FireWeaponMessage
   | ChangeBetMessage
-  | SelectPositionMessage;
+  | SelectPositionMessage
+  | PointerMoveMessage;
 
 // ─── Server → Client Messages ───
 
@@ -82,6 +90,22 @@ export interface ShotRejectedMessage {
   readonly reason: string;
 }
 
+/** Player has insufficient funds to fire */
+export interface OutOfFundsMessage {
+  readonly type: 'outOfFunds';
+  readonly currentCredits: number;
+  readonly requiredBet: number;
+}
+
+/** Remote player fired a weapon (event-only, no state sync) */
+export interface RemoteShootMessage {
+  readonly type: 'remoteShoot';
+  readonly sessionId: string;
+  readonly seatIndex: number;
+  readonly angle: number;
+  readonly lockedTargetId?: string;
+}
+
 /** Player joined the game */
 export interface PlayerJoinedMessage {
   readonly type: 'playerJoined';
@@ -103,6 +127,8 @@ export type ServerMessage =
   | ProjectileSpawnedMessage
   | ProjectileRemovedMessage
   | ShotRejectedMessage
+  | OutOfFundsMessage
+  | RemoteShootMessage
   | PlayerJoinedMessage
   | PlayerLeftMessage;
 
@@ -112,6 +138,7 @@ export const CLIENT_MESSAGES = {
   FIRE_WEAPON: 'fireWeapon',
   CHANGE_BET: 'changeBet',
   SELECT_POSITION: 'selectPosition',
+  POINTER_MOVE: 'pointerMove',
 } as const;
 
 export const SERVER_MESSAGES = {
@@ -121,6 +148,8 @@ export const SERVER_MESSAGES = {
   PROJECTILE_SPAWNED: 'projectileSpawned',
   PROJECTILE_REMOVED: 'projectileRemoved',
   SHOT_REJECTED: 'shotRejected',
+  OUT_OF_FUNDS: 'outOfFunds',
+  REMOTE_SHOOT: 'remoteShoot',
   PLAYER_JOINED: 'playerJoined',
   PLAYER_LEFT: 'playerLeft',
 } as const;

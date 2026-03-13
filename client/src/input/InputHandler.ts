@@ -1,10 +1,16 @@
 // ─────────────────────────────────────────────────────────────
 // Input Handler — Captures User Input and Creates Intents
 // Per ECS skill contract: raw input → Intent Components.
+//
+// LOCK-ON: Right-click on a target to lock. Left-click empty
+// space to clear lock. While locked, auto-fire aims at target.
 // ─────────────────────────────────────────────────────────────
+
+import type { SyncedSpaceObjectState } from '../network/ColyseusClient.js';
 
 export interface FireIntent {
   angle: number;
+  lockedTargetId?: string;
 }
 
 export interface InputState {
@@ -14,12 +20,21 @@ export interface InputState {
   justPressed: boolean;
 }
 
+/** Render radius per object type — mirrors GameRenderer for hit detection */
+const LOCK_ON_HIT_RADII: Record<string, number> = {
+  ASTEROID: 30,
+  ALIEN_CRAFT: 25,
+  ROCKET: 20,
+  NEBULA_BEAST: 50,
+  COSMIC_WHALE: 55,
+};
+
 /**
- * Captures mouse/pointer input for aiming and firing.
+ * Captures mouse/pointer input for aiming, firing, and lock-on targeting.
  * Translates raw DOM events into game intents.
  */
 export class InputHandler {
-  private state: InputState = {
+  private readonly state: InputState = {
     mouseX: 0,
     mouseY: 0,
     mouseDown: false,
@@ -27,6 +42,10 @@ export class InputHandler {
   };
   private previousMouseDown = false;
   private readonly canvas: HTMLElement;
+
+  // Lock-on state
+  private lockedTargetId: string | null = null;
+  private lockedTargetPos: { x: number; y: number } | null = null;
 
   constructor(containerId: string) {
     const container = document.getElementById(containerId);
@@ -43,12 +62,31 @@ export class InputHandler {
       this.state.mouseY = ((e.clientY - rect.top) / rect.height) * 1080;
     });
 
-    this.canvas.addEventListener('mousedown', () => {
-      this.state.mouseDown = true;
+    this.canvas.addEventListener('mousedown', (e: MouseEvent) => {
+      if (e.button === 0) {
+        // Left click
+        this.state.mouseDown = true;
+      }
     });
 
-    this.canvas.addEventListener('mouseup', () => {
-      this.state.mouseDown = false;
+    this.canvas.addEventListener('mouseup', (e: MouseEvent) => {
+      if (e.button === 0) {
+        this.state.mouseDown = false;
+      }
+    });
+
+    // Right-click for lock-on (prevent context menu)
+    this.canvas.addEventListener('contextmenu', (e: Event) => {
+      e.preventDefault();
+    });
+    this.canvas.addEventListener('mousedown', (e: MouseEvent) => {
+      if (e.button === 2) {
+        // Right-click: will be handled in tryLockOn()
+        // (called by main loop with space object data)
+        this.state.mouseX = ((e.clientX - this.canvas.getBoundingClientRect().left) / this.canvas.getBoundingClientRect().width) * 1920;
+        this.state.mouseY = ((e.clientY - this.canvas.getBoundingClientRect().top) / this.canvas.getBoundingClientRect().height) * 1080;
+        this.pendingRightClick = true;
+      }
     });
 
     // Touch support
@@ -73,33 +111,102 @@ export class InputHandler {
     });
   }
 
+  /** Pending right-click flag for lock-on targeting */
+  private pendingRightClick = false;
+
   /** Call once per frame to update justPressed */
   update(): void {
     this.state.justPressed = this.state.mouseDown && !this.previousMouseDown;
     this.previousMouseDown = this.state.mouseDown;
   }
 
+  /**
+   * Try to lock onto a target under the mouse cursor.
+   * Call this after update() with the current space objects.
+   */
+  tryLockOn(spaceObjects: Map<string, SyncedSpaceObjectState>): void {
+    if (!this.pendingRightClick) return;
+    this.pendingRightClick = false;
+
+    // Hit-test against all space objects
+    for (const [id, obj] of spaceObjects) {
+      const hitRadius = LOCK_ON_HIT_RADII[obj.objectType] ?? 30;
+      const dx = this.state.mouseX - obj.x;
+      const dy = this.state.mouseY - obj.y;
+
+      if (dx * dx + dy * dy <= hitRadius * hitRadius) {
+        this.lockedTargetId = id;
+        this.lockedTargetPos = { x: obj.x, y: obj.y };
+        return;
+      }
+    }
+
+    // Clicked empty space — clear lock
+    this.clearLock();
+  }
+
+  /**
+   * Update locked target position from latest server state.
+   * Must be called each frame to keep reticle tracking.
+   */
+  updateLockedTarget(spaceObjects: Map<string, SyncedSpaceObjectState>): void {
+    if (!this.lockedTargetId) return;
+
+    const target = spaceObjects.get(this.lockedTargetId);
+    if (!target) {
+      // Target died or left screen
+      this.clearLock();
+      return;
+    }
+
+    this.lockedTargetPos = { x: target.x, y: target.y };
+  }
+
+  /** Clear the lock-on */
+  clearLock(): void {
+    this.lockedTargetId = null;
+    this.lockedTargetPos = null;
+  }
+
   /** Get the fire intent if the player just clicked */
   getFireIntent(turretX: number, turretY: number): FireIntent | null {
     if (!this.state.justPressed) return null;
 
-    const dx = this.state.mouseX - turretX;
-    const dy = this.state.mouseY - turretY;
-    const angle = Math.atan2(dy, dx);
-
-    return { angle };
+    const result: FireIntent = { angle: this.getAimAngle(turretX, turretY) };
+    if (this.lockedTargetId) {
+      result.lockedTargetId = this.lockedTargetId;
+    }
+    return result;
   }
 
-  /** Get the current aim angle from turret position to mouse */
+  /** Get the current aim angle from turret position to target (or mouse) */
   getAimAngle(turretX: number, turretY: number): number {
+    // If locked, aim at locked target
+    if (this.lockedTargetPos) {
+      const dx = this.lockedTargetPos.x - turretX;
+      const dy = this.lockedTargetPos.y - turretY;
+      return Math.atan2(dy, dx);
+    }
+
     const dx = this.state.mouseX - turretX;
     const dy = this.state.mouseY - turretY;
     return Math.atan2(dy, dx);
   }
 
+  /** Get locked target info for rendering reticle */
+  getLockedTarget(): { id: string; x: number; y: number } | null {
+    if (!this.lockedTargetId || !this.lockedTargetPos) return null;
+    return { id: this.lockedTargetId, x: this.lockedTargetPos.x, y: this.lockedTargetPos.y };
+  }
+
   /** Get raw state for debugging */
   getState(): Readonly<InputState> {
     return this.state;
+  }
+
+  /** Check if mouse/touch is currently held down (for auto-fire) */
+  isMouseDown(): boolean {
+    return this.state.mouseDown;
   }
 
   destroy(): void {

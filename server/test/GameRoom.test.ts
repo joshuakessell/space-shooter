@@ -5,11 +5,10 @@
 // and first-kill mutex.
 // ─────────────────────────────────────────────────────────────
 
-import assert from 'assert';
+import assert from 'node:assert';
 import {
   SpaceObjectType,
   GAME_WIDTH,
-  GAME_HEIGHT,
   PROJECTILE_RADIUS,
 } from '@space-shooter/shared';
 import { World } from '../src/ecs/World.js';
@@ -49,13 +48,13 @@ describe('GameBalanceConfig', () => {
   });
 
   it('maxSuccessThreshold should be < 1.0', () => {
-    assert.ok(GAME_BALANCE_CONFIG.maxSuccessThreshold < 1.0);
+    assert.ok(GAME_BALANCE_CONFIG.maxSuccessThreshold < 1);
     assert.ok(GAME_BALANCE_CONFIG.maxSuccessThreshold > 0);
   });
 
   it('volatility phases should have correct multipliers', () => {
     assert.strictEqual(GAME_BALANCE_CONFIG.volatility.phases[VolatilityPhase.EATING], 0.7);
-    assert.strictEqual(GAME_BALANCE_CONFIG.volatility.phases[VolatilityPhase.BASELINE], 1.0);
+    assert.strictEqual(GAME_BALANCE_CONFIG.volatility.phases[VolatilityPhase.BASELINE], 1);
     assert.strictEqual(GAME_BALANCE_CONFIG.volatility.phases[VolatilityPhase.FRENZY], 1.5);
   });
 });
@@ -66,7 +65,7 @@ describe('RoomEconomyManager', () => {
   it('should start in BASELINE phase', () => {
     const economy = new RoomEconomyManager(GAME_BALANCE_CONFIG);
     assert.strictEqual(economy.getCurrentPhase(), VolatilityPhase.BASELINE);
-    assert.strictEqual(economy.getCurrentMultiplier(), 1.0);
+    assert.strictEqual(economy.getCurrentMultiplier(), 1);
   });
 
   it('should transition to EATING when house is losing (negative profit)', () => {
@@ -92,7 +91,7 @@ describe('RoomEconomyManager', () => {
       volatility: {
         ...GAME_BALANCE_CONFIG.volatility,
         minTicksBetweenTransitions: 0,
-        baselineToFrenzyProfitRatio: 0.10,
+        baselineToFrenzyProfitRatio: 0.1,
       },
     });
     const economy = new RoomEconomyManager(config);
@@ -111,7 +110,7 @@ describe('RoomEconomyManager', () => {
       volatility: {
         ...GAME_BALANCE_CONFIG.volatility,
         minTicksBetweenTransitions: 50, // High cooldown to prevent re-entry after frenzy ends
-        baselineToFrenzyProfitRatio: 0.10,
+        baselineToFrenzyProfitRatio: 0.1,
         frenzyDurationTicks: 10,
       },
     });
@@ -210,7 +209,7 @@ describe('RtpEngine (4-Layer Dynamic Volatility)', () => {
     assert.ok(hotSeatId === 'p1' || hotSeatId === 'p2');
 
     // Evaluate for the hot-seat player
-    const hotResult = engine.evaluateHit(SpaceObjectType.ASTEROID, 1, hotSeatId!, 1, 0);
+    const hotResult = engine.evaluateHit(SpaceObjectType.ASTEROID, 1, hotSeatId as string, 1, 0);
     assert.strictEqual(hotResult.modifiers.hotSeatModifier, GAME_BALANCE_CONFIG.hotSeat.boostMultiplier);
 
     // Evaluate for a non-hot-seat player
@@ -227,11 +226,11 @@ describe('RtpEngine (4-Layer Dynamic Volatility)', () => {
 
     // No absorption → modifier = 1.0
     const baseResult = engine.evaluateHit(SpaceObjectType.ASTEROID, 10, 'p1', 1, 0);
-    assert.strictEqual(baseResult.modifiers.pinataModifier, 1.0);
+    assert.strictEqual(baseResult.modifiers.pinataModifier, 1);
 
     // Some absorption → modifier > 1.0
     const absorbedResult = engine.evaluateHit(SpaceObjectType.ASTEROID, 10, 'p1', 1, 15);
-    assert.ok(absorbedResult.modifiers.pinataModifier > 1.0,
+    assert.ok(absorbedResult.modifiers.pinataModifier > 1,
       `Piñata modifier should be > 1.0, got ${absorbedResult.modifiers.pinataModifier}`);
 
     // Heavy absorption → modifier approaches max
@@ -281,7 +280,7 @@ describe('RtpEngine (4-Layer Dynamic Volatility)', () => {
 
     // Cosmic Whale (100x multiplier) > appliesToMaxMultiplier (10x)
     const result = engine.evaluateHit(SpaceObjectType.COSMIC_WHALE, 1, 'p1', 1, 0);
-    assert.strictEqual(result.modifiers.pityModifier, 1.0,
+    assert.strictEqual(result.modifiers.pityModifier, 1,
       'Pity should NOT apply to high-multiplier targets');
   });
 
@@ -343,7 +342,7 @@ describe('RtpEngine (4-Layer Dynamic Volatility)', () => {
 
     const observedRtp = totalPayout / totalBet;
     // With modifiers at neutral (1.0), RTP should be near 0.98
-    assert.ok(observedRtp > 0.90, `RTP too low: ${observedRtp}`);
+    assert.ok(observedRtp > 0.9, `RTP too low: ${observedRtp}`);
     assert.ok(observedRtp < 1.06, `RTP too high: ${observedRtp}`);
   });
 });
@@ -461,32 +460,47 @@ describe('World', () => {
 // ─── Movement System Tests ───
 
 describe('MovementSystem', () => {
-  it('should move entity along path', () => {
+  it('should move entity along linear path', () => {
     const world = new World();
     const e = world.createEntity();
 
     world.positions.set(e, { x: 0, y: 0 });
-    world.spaceObjects.set(e, {
-      type: SpaceObjectType.ASTEROID,
-      multiplier: 2,
-      destroyProbability: 0.49,
-      pathIndex: 0,
-      pathProgress: 0,
-      path: [
-        { x: 0, y: 0 },
-        { x: 100, y: 0 },
-        { x: 100, y: 100 },
-      ],
-      speed: 100,
-      absorbedCredits: 0,
-      isDead: false,
+    world.paths.set(e, {
+      pathType: 'linear',
+      controlPoints: [{ x: 0, y: 0 }, { x: 100, y: 0 }],
+      duration: 1000, // 1 second
+      timeAlive: 0,
+      offset: { x: 0, y: 0 },
+      sineAmplitude: 0,
+      sineFrequency: 0,
     });
 
-    movementSystem(world, 0.5);
+    // Advance 500ms = t=0.5 → x should be 50
+    movementSystem(world, 500);
 
     const pos = world.positions.get(e)!;
     assert.ok(Math.abs(pos.x - 50) < 1, `Expected x ≈ 50, got ${pos.x}`);
     assert.ok(Math.abs(pos.y - 0) < 1, `Expected y ≈ 0, got ${pos.y}`);
+  });
+
+  it('should tag entity for destroy when path completes', () => {
+    const world = new World();
+    const e = world.createEntity();
+
+    world.positions.set(e, { x: 0, y: 0 });
+    world.paths.set(e, {
+      pathType: 'linear',
+      controlPoints: [{ x: 0, y: 0 }, { x: 100, y: 0 }],
+      duration: 1000,
+      timeAlive: 0,
+      offset: { x: 0, y: 0 },
+      sineAmplitude: 0,
+      sineFrequency: 0,
+    });
+
+    // Advance past duration
+    movementSystem(world, 1100);
+    assert.ok(world.pendingDestroy.has(e), 'Entity should be tagged for destroy');
   });
 });
 
@@ -549,9 +563,6 @@ describe('DestroySystem (4-Layer)', () => {
       type: SpaceObjectType.ASTEROID,
       multiplier: 2,
       destroyProbability: 0.49,
-      pathIndex: 0, pathProgress: 0,
-      path: [{ x: 0, y: 0 }, { x: 100, y: 0 }],
-      speed: 100,
       absorbedCredits: 999, // High piñata → very likely kill
       isDead: false,
     });
@@ -595,9 +606,6 @@ describe('DestroySystem (4-Layer)', () => {
       type: SpaceObjectType.COSMIC_WHALE, // Very low base chance
       multiplier: 100,
       destroyProbability: 0.0098,
-      pathIndex: 0, pathProgress: 0,
-      path: [{ x: 0, y: 0 }, { x: 100, y: 0 }],
-      speed: 100,
       absorbedCredits: 0,
       isDead: false,
     });
@@ -633,9 +641,7 @@ describe('DestroySystem (4-Layer)', () => {
     world.spaceObjects.set(obj, {
       type: SpaceObjectType.ASTEROID,
       multiplier: 2, destroyProbability: 0.49,
-      pathIndex: 0, pathProgress: 0,
-      path: [{ x: 0, y: 0 }, { x: 100, y: 0 }],
-      speed: 100, absorbedCredits: 0, isDead: false,
+      absorbedCredits: 0, isDead: false,
     });
 
     const proj = world.createEntity();
@@ -668,9 +674,7 @@ describe('CollisionSystem', () => {
     world.spaceObjects.set(obj, {
       type: SpaceObjectType.ASTEROID,
       multiplier: 2, destroyProbability: 0.49,
-      pathIndex: 0, pathProgress: 0,
-      path: [{ x: 500, y: 500 }, { x: 600, y: 500 }],
-      speed: 100, absorbedCredits: 0, isDead: false,
+      absorbedCredits: 0, isDead: false,
     });
     world.bounds.set(obj, { radius: 40 });
 
@@ -691,9 +695,7 @@ describe('CollisionSystem', () => {
     world.spaceObjects.set(obj, {
       type: SpaceObjectType.ROCKET,
       multiplier: 3, destroyProbability: 0.3267,
-      pathIndex: 0, pathProgress: 0,
-      path: [{ x: 100, y: 100 }, { x: 200, y: 100 }],
-      speed: 100, absorbedCredits: 0, isDead: false,
+      absorbedCredits: 0, isDead: false,
     });
     world.bounds.set(obj, { radius: 30 });
 
@@ -718,9 +720,9 @@ describe('Quadtree', () => {
     tree.insert({ entityId: 3, x: 105, y: 105, radius: 10 });
 
     const results = tree.query({ entityId: 99, x: 100, y: 100, radius: 20 });
-    const ids = results.map(r => r.entityId);
-    assert.ok(ids.includes(1), 'Should find entity 1');
-    assert.ok(ids.includes(3), 'Should find entity 3');
+    const ids = new Set(results.map(r => r.entityId));
+    assert.ok(ids.has(1), 'Should find entity 1');
+    assert.ok(ids.has(3), 'Should find entity 3');
   });
 });
 
@@ -751,7 +753,7 @@ describe('SystemRunner (with Economy)', () => {
   it('should run a complete tick cycle with economy tracking', () => {
     const rng = new SeededRngService(42);
     const wallet = new WalletManager();
-    wallet.initPlayer('p1', 1000);
+    wallet.initPlayer('p1', 10000);
 
     const economy = new RoomEconomyManager(GAME_BALANCE_CONFIG);
     const world = new World();
@@ -769,12 +771,12 @@ describe('SystemRunner (with Economy)', () => {
     const spawnSystem = new SpawnSystem(rng, GAME_BALANCE_CONFIG);
     const runner = new SystemRunner(world, engine, wallet, economy, spawnSystem);
 
-    // Queue a fire intent
+    // Queue a fire intent (bet must be a valid tier)
     const intentId = world.createEntity();
     world.fireIntents.set(intentId, {
       playerId: 'p1',
       angle: -Math.PI / 2,
-      betAmount: 5,
+      betAmount: 10,
     });
 
     // Run one tick
@@ -784,10 +786,10 @@ describe('SystemRunner (with Economy)', () => {
     assert.strictEqual(world.fireIntents.size, 0);
 
     // Bet should have been deducted
-    assert.strictEqual(wallet.getBalance('p1'), 995);
+    assert.strictEqual(wallet.getBalance('p1'), 9990);
 
     // Economy should track the bet
-    assert.strictEqual(economy.getCreditsIn(), 5);
+    assert.strictEqual(economy.getCreditsIn(), 10);
 
     // A projectile should exist
     assert.ok(result.newProjectiles.length === 1);
