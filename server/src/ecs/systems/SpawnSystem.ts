@@ -1,6 +1,7 @@
 // ─────────────────────────────────────────────────────────────
 // Spawn System — Space Object Wave Management
-// Creates new space objects at configured intervals.
+// CONFIG-DRIVEN: All spawn rates, speeds, and types from
+// GameBalanceConfig via the objectTypes map.
 // ─────────────────────────────────────────────────────────────
 
 import {
@@ -11,26 +12,25 @@ import {
   SPAWN_MAX_INTERVAL_TICKS,
   OBJECT_MIN_SPEED,
   OBJECT_MAX_SPEED,
-  RTP_TABLE,
-  OBJECT_RADII,
-  SPAWN_WEIGHTS,
   SpaceObjectType,
 } from '@space-shooter/shared';
 import type { IVector2 } from '@space-shooter/shared';
 import type { World } from '../World.js';
 import type { IRngService } from '../../services/CsprngService.js';
-
-/** All space object types as an array for weighted selection */
-const OBJECT_TYPES = Object.values(SpaceObjectType);
+import type { IGameBalanceConfig, IObjectTypeConfig } from '../../config/GameBalanceConfig.js';
 
 /**
  * Manages the spawning of space objects onto the playing field.
  * Objects spawn from off-screen edges and follow winding paths.
+ * All multipliers, radii, and spawn weights are read from config.
  */
 export class SpawnSystem {
   private ticksUntilNextSpawn = 0;
 
-  constructor(private readonly rng: IRngService) {
+  constructor(
+    private readonly rng: IRngService,
+    private readonly config: IGameBalanceConfig,
+  ) {
     this.ticksUntilNextSpawn = SPAWN_MIN_INTERVAL_TICKS;
   }
 
@@ -49,12 +49,9 @@ export class SpawnSystem {
       return;
     }
 
-    // Pick a random type via weighted selection
+    // Pick a random type via weighted selection (config-driven)
     const type = this.selectWeightedType();
-    const rtpEntry = RTP_TABLE.get(type);
-    const radius = OBJECT_RADII.get(type) ?? 30;
-
-    if (!rtpEntry) return;
+    const objConfig = this.config.objectTypes[type];
 
     // Generate a winding path
     const path = this.generatePath();
@@ -66,14 +63,16 @@ export class SpawnSystem {
     world.positions.set(entityId, { x: path[0].x, y: path[0].y });
     world.spaceObjects.set(entityId, {
       type,
-      multiplier: rtpEntry.multiplier,
-      destroyProbability: rtpEntry.destroyProbability,
+      multiplier: objConfig.multiplier,
+      destroyProbability: objConfig.destroyProbability,
       pathIndex: 0,
       pathProgress: 0,
       path,
       speed,
+      absorbedCredits: 0,  // Piñata: starts at zero, incremented on missed hits
+      isDead: false,        // First-kill mutex: set true on successful RNG roll
     });
-    world.bounds.set(entityId, { radius });
+    world.bounds.set(entityId, { radius: objConfig.collisionRadius });
 
     // Schedule next spawn
     this.ticksUntilNextSpawn = this.rng.randomRange(
@@ -84,18 +83,19 @@ export class SpawnSystem {
 
   /**
    * Weighted random selection of space object type.
-   * Common objects (Asteroid) appear more often than rare ones (CosmicWhale).
+   * Weights come from GameBalanceConfig.objectTypes[type].spawnWeight.
    */
   private selectWeightedType(): SpaceObjectType {
+    const entries = Object.entries(this.config.objectTypes) as Array<[SpaceObjectType, IObjectTypeConfig]>;
+
     let totalWeight = 0;
-    for (const type of OBJECT_TYPES) {
-      totalWeight += SPAWN_WEIGHTS.get(type) ?? 1;
+    for (const [, objConfig] of entries) {
+      totalWeight += objConfig.spawnWeight;
     }
 
     let roll = this.rng.randomFloat(0, totalWeight);
-    for (const type of OBJECT_TYPES) {
-      const weight = SPAWN_WEIGHTS.get(type) ?? 1;
-      roll -= weight;
+    for (const [type, objConfig] of entries) {
+      roll -= objConfig.spawnWeight;
       if (roll <= 0) return type;
     }
 
@@ -120,7 +120,6 @@ export class SpawnSystem {
 
     // Intermediate winding waypoints
     for (let i = 1; i < numWaypoints - 1; i++) {
-      const t = i / (numWaypoints - 1);
       const margin = 100;
       path.push({
         x: margin + this.rng.randomFloat(0, GAME_WIDTH - 2 * margin),

@@ -30,6 +30,20 @@ export interface SpaceObjectComponent {
   readonly path: readonly IVector2[];
   /** Speed along the path (pixels per second) */
   readonly speed: number;
+  /**
+   * Hidden absorbed credits from failed hits (Piñata mechanic).
+   * CRITICAL SECURITY: This value is NEVER synced to clients
+   * via @colyseus/schema. It exists only in server memory.
+   */
+  absorbedCredits: number;
+  /**
+   * First-kill mutex flag. Set to true immediately on successful
+   * RNG roll within the same tick's collision resolution loop.
+   * Prevents double-payout when multiple projectiles hit
+   * the same target in the same tick.
+   * Separate from PendingDestroy (which is deferred cleanup).
+   */
+  isDead: boolean;
 }
 
 /** Projectile (laser) data */

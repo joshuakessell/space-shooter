@@ -1,7 +1,12 @@
 // ─────────────────────────────────────────────────────────────
 // GameRoom — Authoritative Server-Side Game Room
-// The "brain" of the game: owns the ECS world,
-// processes inputs, runs the simulation, and broadcasts state.
+// ─────────────────────────────────────────────────────────────
+// SECURITY: Server is the single source of truth. Client is
+// a dumb renderer. All economy, RTP, and hit resolution
+// happens here. absorbedCredits and hot-seat ID never leave
+// server memory.
+// CONFIG-DRIVEN: Economy behavior flows through GameBalanceConfig.
+// AUDIT: Every collision resolution is available in tick results.
 // ─────────────────────────────────────────────────────────────
 
 import { Room, Client, type CloseCode } from 'colyseus';
@@ -31,6 +36,8 @@ import { SpawnSystem } from '../ecs/systems/SpawnSystem.js';
 import { CsprngService } from '../services/CsprngService.js';
 import { RtpEngine } from '../services/RtpEngine.js';
 import { WalletManager } from '../services/WalletManager.js';
+import { RoomEconomyManager } from '../services/RoomEconomyManager.js';
+import { GAME_BALANCE_CONFIG } from '../config/GameBalanceConfig.js';
 
 /** All available turret positions */
 const ALL_POSITIONS: TurretPosition[] = [
@@ -51,6 +58,8 @@ export class GameRoom extends Room<GameRoomState> {
   private systemRunner!: SystemRunner;
   private wallet!: WalletManager;
   private rng!: CsprngService;
+  private rtpEngine!: RtpEngine;
+  private economy!: RoomEconomyManager;
 
   // ─── Tick loop ───
   private simulationInterval: ReturnType<typeof setInterval> | null = null;
@@ -75,12 +84,19 @@ export class GameRoom extends Room<GameRoomState> {
     // Initialize services
     this.rng = new CsprngService();
     this.wallet = new WalletManager();
+    this.economy = new RoomEconomyManager(GAME_BALANCE_CONFIG);
+    this.rtpEngine = new RtpEngine(this.rng, this.economy, GAME_BALANCE_CONFIG);
 
     // Initialize ECS
     this.world = new World();
-    const rtpEngine = new RtpEngine(this.rng);
-    const spawnSystem = new SpawnSystem(this.rng);
-    this.systemRunner = new SystemRunner(this.world, rtpEngine, this.wallet, spawnSystem);
+    const spawnSystem = new SpawnSystem(this.rng, GAME_BALANCE_CONFIG);
+    this.systemRunner = new SystemRunner(
+      this.world,
+      this.rtpEngine,
+      this.wallet,
+      this.economy,
+      spawnSystem,
+    );
 
     // Start the fixed-timestep simulation loop
     this.simulationInterval = setInterval(() => {
@@ -88,6 +104,8 @@ export class GameRoom extends Room<GameRoomState> {
     }, FIXED_TIMESTEP_MS);
 
     console.log(`[GameRoom] Room ${this.roomId} created. Tick rate: ${1000 / FIXED_TIMESTEP_MS} Hz`);
+    console.log(`[GameRoom] RTP target: ${GAME_BALANCE_CONFIG.targetRtp * 100}%`);
+    console.log(`[GameRoom] Max success threshold: ${GAME_BALANCE_CONFIG.maxSuccessThreshold * 100}%`);
   }
 
   onJoin(client: Client, _options: Record<string, unknown>): void {
@@ -103,6 +121,9 @@ export class GameRoom extends Room<GameRoomState> {
 
     // Initialize wallet
     this.wallet.initPlayer(client.sessionId, STARTING_CREDITS);
+
+    // Register player in RTP engine (pity timer tracking)
+    this.rtpEngine.addPlayer(client.sessionId);
 
     // Create turret entity in ECS
     const turretId = this.world.createEntity();
@@ -137,15 +158,15 @@ export class GameRoom extends Room<GameRoomState> {
       }
     }
 
-    // Clean up projectiles owned by this player
-    for (const [entityId, proj] of this.world.projectiles) {
-      if (proj.ownerId === client.sessionId) {
-        this.world.pendingDestroy.set(entityId, { markedAtTick: this.world.currentTick });
-      }
-    }
+    // IMPORTANT: Do NOT destroy mid-air projectiles.
+    // Per fish-table genre rules, bullets fired by a disconnected
+    // player continue to simulate and resolve. Payouts credit
+    // their server-side wallet even while offline.
+    // The wallet survives until the player's seat reservation expires.
 
     this.playerPositions.delete(client.sessionId);
     this.playerBets.delete(client.sessionId);
+    this.rtpEngine.removePlayer(client.sessionId);
     this.wallet.removePlayer(client.sessionId);
     this.state.players.delete(client.sessionId);
 
@@ -159,6 +180,8 @@ export class GameRoom extends Room<GameRoomState> {
     }
     this.world.clear();
     this.wallet.clear();
+    this.economy.reset();
+    this.rtpEngine.reset();
     console.log(`[GameRoom] Room ${this.roomId} disposed.`);
   }
 
@@ -190,10 +213,14 @@ export class GameRoom extends Room<GameRoomState> {
   // ─── Simulation ───
 
   private simulateTick(): void {
+    // Gather active player session IDs for hot-seat rotation
+    const activePlayers = Array.from(this.playerPositions.keys());
+
     // Run the full ECS pipeline
-    const result = this.systemRunner.tick();
+    const result = this.systemRunner.tick(activePlayers);
 
     // ─── Sync ECS state → Colyseus schema (delta broadcasting) ───
+    // NOTE: absorbedCredits and isDead are NEVER synced to clients.
 
     // Update projectiles
     this.state.projectiles.clear();
@@ -211,6 +238,7 @@ export class GameRoom extends Room<GameRoomState> {
     }
 
     // Update space objects
+    // SECURITY: Only sync type, position, multiplier. Never absorbedCredits.
     this.state.spaceObjects.clear();
     for (const [entityId, obj] of this.world.spaceObjects) {
       const pos = this.world.positions.get(entityId);
@@ -248,12 +276,15 @@ export class GameRoom extends Room<GameRoomState> {
 
     // Rejected shots
     for (const rejected of result.rejectedShots) {
-      // Send only to the specific player
       const targetClient = this.clients.find(c => c.sessionId === rejected.playerId);
       if (targetClient) {
         targetClient.send('shotRejected', { reason: rejected.reason });
       }
     }
+
+    // NOTE: result.collisionResolutions contains every shot's full
+    // modifier breakdown for audit logging. In production, pipe this
+    // to AuditLogger.logResolutions(result.collisionResolutions).
   }
 
   // ─── Helpers ───

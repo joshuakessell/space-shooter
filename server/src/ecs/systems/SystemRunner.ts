@@ -1,9 +1,11 @@
 // ─────────────────────────────────────────────────────────────
 // System Runner — Orchestrates ECS System Execution Order
-// Strict top-down pipeline per Phaser 4 skill contract.
+// ─────────────────────────────────────────────────────────────
+// SECURITY: Rate limiting, hot-seat rotation, economy tracking.
+// CONFIG-DRIVEN: All thresholds from GameBalanceConfig.
 // ─────────────────────────────────────────────────────────────
 
-import type { EntityId, IPayoutEvent, IVector2 } from '@space-shooter/shared';
+import type { EntityId, IPayoutEvent } from '@space-shooter/shared';
 import {
   FIXED_TIMESTEP_SEC,
   PROJECTILE_SPEED,
@@ -20,10 +22,12 @@ import { projectileSystem } from './ProjectileSystem.js';
 import { collisionSystem } from './CollisionSystem.js';
 import type { CollisionEvent } from './CollisionSystem.js';
 import { destroySystem } from './DestroySystem.js';
+import type { ICollisionResolution } from './DestroySystem.js';
 import { SpawnSystem } from './SpawnSystem.js';
 import { cleanupSystem } from './CleanupSystem.js';
 import type { RtpEngine } from '../../services/RtpEngine.js';
 import type { WalletManager } from '../../services/WalletManager.js';
+import type { RoomEconomyManager } from '../../services/RoomEconomyManager.js';
 
 /** Result of a single simulation tick */
 export interface TickResult {
@@ -31,6 +35,8 @@ export interface TickResult {
   readonly destroyedIds: readonly EntityId[];
   readonly newProjectiles: readonly NewProjectileInfo[];
   readonly rejectedShots: readonly RejectedShot[];
+  /** Every collision resolution this tick — for audit logging */
+  readonly collisionResolutions: readonly ICollisionResolution[];
 }
 
 export interface NewProjectileInfo {
@@ -49,13 +55,15 @@ export interface RejectedShot {
 /**
  * Orchestrates the ECS system pipeline in strict order:
  *
- * 1. Input    — Process fire intents (create projectiles)
- * 2. Spawn    — Create new space objects
- * 3. Movement — Move space objects along paths
- * 4. Projectile — Move lasers + handle ricochets
- * 5. Collision — Quadtree broad-phase + circle narrow-phase
- * 6. Destroy  — CSPRNG roll + payout
- * 7. Cleanup  — Purge PendingDestroy entities
+ * 0. Economy  — Update volatility tide state machine
+ * 1. HotSeat  — Rotate hot-seat if interval elapsed
+ * 2. Input    — Process fire intents (create projectiles)
+ * 3. Spawn    — Create new space objects
+ * 4. Movement — Move space objects along paths
+ * 5. Projectile — Move lasers + handle ricochets
+ * 6. Collision — Quadtree broad-phase + circle narrow-phase
+ * 7. Destroy  — 4-layer RTP roll + first-kill mutex + piñata absorption
+ * 8. Cleanup  — Purge PendingDestroy entities
  *
  * Systems must never call each other directly.
  * Data flows via Components only.
@@ -67,6 +75,7 @@ export class SystemRunner {
     private readonly world: World,
     private readonly rtpEngine: RtpEngine,
     private readonly wallet: WalletManager,
+    private readonly economy: RoomEconomyManager,
     spawnSystem: SpawnSystem,
   ) {
     this.spawnSystem = spawnSystem;
@@ -74,47 +83,69 @@ export class SystemRunner {
 
   /**
    * Execute one full simulation tick.
-   * Returns events for the room to broadcast.
+   * Returns events for the room to broadcast + audit data.
    */
-  tick(): TickResult {
+  tick(activePlayers: readonly string[]): TickResult {
     const delta = FIXED_TIMESTEP_SEC;
     const newProjectiles: NewProjectileInfo[] = [];
     const rejectedShots: RejectedShot[] = [];
 
-    // ─── 1. Input: Process Fire Intents ───
+    // ─── 0. Economy: Update volatility tide ───
+    this.economy.tick(this.world.currentTick);
+
+    // ─── 1. HotSeat: Rotate if interval elapsed ───
+    if (this.rtpEngine.shouldRotateHotSeat(this.world.currentTick)) {
+      this.rtpEngine.rotateHotSeat(activePlayers, this.world.currentTick);
+    }
+
+    // ─── 2. Input: Process Fire Intents ───
     for (const [intentId, intent] of this.world.fireIntents) {
       const result = this.processFireIntent(intent);
       if ('reason' in result) {
         rejectedShots.push(result);
       } else {
         newProjectiles.push(result);
+        // Track bet in room economy
+        this.economy.recordBet(intent.betAmount);
       }
       // Intents are consumed immediately
       this.world.fireIntents.delete(intentId);
     }
 
-    // ─── 2. Spawn: Create new space objects ───
+    // ─── 3. Spawn: Create new space objects ───
     this.spawnSystem.update(this.world);
 
-    // ─── 3. Movement: Advance space objects along paths ───
+    // ─── 4. Movement: Advance space objects along paths ───
     movementSystem(this.world, delta);
 
-    // ─── 4. Projectile: Move lasers + ricochets ───
+    // ─── 5. Projectile: Move lasers + ricochets ───
     projectileSystem(this.world, delta);
 
-    // ─── 5. Collision: Detect hits ───
+    // ─── 6. Collision: Detect hits ───
     const collisions: CollisionEvent[] = collisionSystem(this.world);
 
-    // ─── 6. Destroy: RNG roll + payouts ───
-    const payouts = destroySystem(this.world, collisions, this.rtpEngine, this.wallet);
+    // ─── 7. Destroy: 4-layer RTP roll + first-kill mutex + piñata ───
+    const { payouts, resolutions } = destroySystem(
+      this.world,
+      collisions,
+      this.rtpEngine,
+      this.wallet,
+      this.economy,
+    );
 
-    // ─── 7. Cleanup: Purge destroyed entities ───
+    // ─── 8. Cleanup: Purge destroyed entities ───
     const destroyedIds = cleanupSystem(this.world);
 
     // Advance tick counter
     this.world.currentTick++;
 
-    return { payouts, destroyedIds, newProjectiles, rejectedShots };
+    return {
+      payouts,
+      destroyedIds,
+      newProjectiles,
+      rejectedShots,
+      collisionResolutions: resolutions,
+    };
   }
 
   /**
