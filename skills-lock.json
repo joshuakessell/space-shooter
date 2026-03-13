@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "skills": {
+    "phaser-gamedev": {
+      "source": "chongdashu/phaserjs-tinyswords",
+      "sourceType": "github",
+      "computedHash": "784c91cd1cd227a46500435d24a5e7dd157c2cc61ff37e4683ebdc0a6ed21b1a"
+    },
+    "phaser4-professional-framework": {
+      "source": "jl-velasco/phaser-4-skill",
+      "sourceType": "github",
+      "computedHash": "f82629ab7505d87697b8cff677f2cf29cbf70118ffb7c0bb361a1c0e15feeb64"
+    },
+    "using-superpowers": {
+      "source": "obra/superpowers",
+      "sourceType": "github",
+      "computedHash": "5ed84a512f8664cc440ff26b19a0087eae6b2979e9e79cb26366b7f7b134e758"
+    }
+  }
+}

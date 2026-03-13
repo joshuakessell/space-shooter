@@ -1,0 +1,17 @@
+{
+  "private": true,
+  "name": "space-shooter",
+  "version": "1.0.0",
+  "description": "6-player multiplayer space shooter casino game",
+  "workspaces": [
+    "shared",
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev:server": "npm run start --workspace=server",
+    "dev:client": "npm run dev --workspace=client",
+    "build": "npm run build --workspaces",
+    "test": "npm test --workspace=server"
+  }
+}

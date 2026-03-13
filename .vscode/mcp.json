@@ -1,0 +1,11 @@
+{
+  "servers": {
+    "phaser-editor": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "/Applications/Phaser Editor 5.app/Contents/Resources/app/src/js/chatbot/mcp/server.js"
+      ]
+    }
+  }
+}
