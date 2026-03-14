@@ -59,6 +59,11 @@ export const RTP_TABLE: ReadonlyMap<SpaceObjectType, IRtpEntry> = new Map([
     multiplier: 100,
     destroyProbability: 0.0098,    // 0.98% → 100×0.0098 = 0.98
   }],
+  [SpaceObjectType.SUPERNOVA_BOMB, {
+    type: SpaceObjectType.SUPERNOVA_BOMB,
+    multiplier: 20,
+    destroyProbability: 0.049,     // 4.9% → 20×0.049 = 0.98 (AoE on kill)
+  }],
 ]);
 
 /**
@@ -74,6 +79,7 @@ export const OBJECT_RADII: ReadonlyMap<SpaceObjectType, number> = new Map([
   [SpaceObjectType.METEOR_SHOWER,  26],
   [SpaceObjectType.NEBULA_BEAST,   24],
   [SpaceObjectType.COSMIC_WHALE,   22],
+  [SpaceObjectType.SUPERNOVA_BOMB,  45],
 ]);
 
 /**
@@ -90,4 +96,5 @@ export const SPAWN_WEIGHTS: ReadonlyMap<SpaceObjectType, number> = new Map([
   [SpaceObjectType.METEOR_SHOWER,  4],
   [SpaceObjectType.NEBULA_BEAST,   2.5],
   [SpaceObjectType.COSMIC_WHALE,   1.5],
+  [SpaceObjectType.SUPERNOVA_BOMB,  1],
 ]);

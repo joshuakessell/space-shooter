@@ -9,7 +9,7 @@
 // AUDIT: Every collision resolution is available in tick results.
 // ─────────────────────────────────────────────────────────────
 
-import { Room, Client, type CloseCode } from 'colyseus';
+import { Room, Client, type CloseCode, type Deferred } from 'colyseus';
 import {
   MAX_PLAYERS,
   FIXED_TIMESTEP_MS,
@@ -20,8 +20,10 @@ import {
   BET_TIERS,
   CLIENT_MESSAGES,
   SERVER_MESSAGES,
+  WEAPON_COST,
+  WEAPON_TYPES,
 } from '@space-shooter/shared';
-import type { FireWeaponMessage, ChangeBetMessage, PointerMoveMessage } from '@space-shooter/shared';
+import type { WeaponType, FireWeaponMessage, ChangeBetMessage, PointerMoveMessage, SwitchWeaponMessage } from '@space-shooter/shared';
 
 import {
   GameRoomState,
@@ -44,6 +46,12 @@ import { GAME_BALANCE_CONFIG } from '../config/GameBalanceConfig.js';
  */
 type SeatArray = (string | null)[];
 
+/** Sliding window violation tracker */
+interface ViolationTracker {
+  count: number;
+  windowStart: number;
+}
+
 export class GameRoom extends Room<{ state: GameRoomState }> {
   maxClients = MAX_PLAYERS;
 
@@ -61,6 +69,15 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
   // ─── Seat management ───
   private readonly seats: SeatArray = new Array<string | null>(MAX_PLAYERS).fill(null);
   private readonly playerBets: Map<string, number> = new Map();
+  private readonly playerWeapons: Map<string, WeaponType> = new Map();
+
+  // ─── Security: Rate Limiting ───
+  private readonly lastShotTimestamp: Map<string, number> = new Map();
+  private readonly rateLimitViolations: Map<string, ViolationTracker> = new Map();
+  private static readonly BET_TIER_SET: ReadonlySet<number> = new Set(BET_TIERS);
+
+  // ─── Reconnection tracking ───
+  private readonly reconnections: Map<string, Deferred<Client>> = new Map();
 
   // ─── Message handlers ───
   messages = {
@@ -72,6 +89,9 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
     },
     [CLIENT_MESSAGES.POINTER_MOVE]: (client: Client, message: PointerMoveMessage) => {
       this.handlePointerMove(client, message);
+    },
+    [CLIENT_MESSAGES.SWITCH_WEAPON]: (client: Client, message: SwitchWeaponMessage) => {
+      this.handleSwitchWeapon(client, message);
     },
   };
 
@@ -104,6 +124,7 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
 
     console.log(`[GameRoom] Room ${this.roomId} created. Tick rate: ${1000 / FIXED_TIMESTEP_MS} Hz`);
     console.log(`[GameRoom] RTP target: ${GAME_BALANCE_CONFIG.targetRtp * 100}%`);
+    console.log(`[GameRoom] Security: fire rate=${GAME_BALANCE_CONFIG.security.maxFireRateMs}ms, auto-ban=${GAME_BALANCE_CONFIG.security.rateLimitViolationThreshold} violations/${GAME_BALANCE_CONFIG.security.rateLimitWindowMs}ms`);
     console.log(`[GameRoom] Max success threshold: ${GAME_BALANCE_CONFIG.maxSuccessThreshold * 100}%`);
   }
 
@@ -146,16 +167,71 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
     playerSchema.turretY = coords.y;
     this.state.players.set(client.sessionId, playerSchema);
 
+    // Initialize rate-limit state
+    this.lastShotTimestamp.set(client.sessionId, 0);
+    this.rateLimitViolations.set(client.sessionId, { count: 0, windowStart: 0 });
+
     console.log(`[GameRoom] Player ${client.sessionId} joined at seat ${seatIndex} (${coords.x}, ${coords.y})`);
   }
 
+  // ─── Disconnect Handling ───
+
+  /**
+   * Called when a client unexpectedly disconnects (network drop, tab close).
+   * Reserves their seat for 30 seconds so mid-air projectiles can still
+   * resolve payouts. Wallet, RTP state, and turret are preserved.
+   */
+  async onDrop(client: Client, _code: number): Promise<void> {
+    const { reconnectionTimeoutSec } = GAME_BALANCE_CONFIG.security;
+
+    // Mark player as disconnected in schema (for client-side UI)
+    const player = this.state.players.get(client.sessionId);
+    if (player) {
+      player.connected = false;
+    }
+
+    console.log(`[GameRoom] Player ${client.sessionId} dropped. Reserving seat for ${reconnectionTimeoutSec}s...`);
+
+    try {
+      // Reserve seat — mid-air projectiles continue to simulate
+      const reconnection = this.allowReconnection(client, reconnectionTimeoutSec);
+      this.reconnections.set(client.sessionId, reconnection);
+
+      await reconnection;
+
+      // Player reconnected!
+      this.reconnections.delete(client.sessionId);
+      if (player) {
+        player.connected = true;
+      }
+      // Reset rate-limit state for fresh session
+      this.lastShotTimestamp.set(client.sessionId, 0);
+      this.rateLimitViolations.set(client.sessionId, { count: 0, windowStart: 0 });
+
+      console.log(`[GameRoom] Player ${client.sessionId} reconnected! Balance: ${this.wallet.getBalance(client.sessionId)}`);
+
+    } catch {
+      // Reconnection timed out or was rejected — full cleanup
+      this.reconnections.delete(client.sessionId);
+      this.performFullCleanup(client.sessionId);
+    }
+  }
+
+  /**
+   * Called when a client intentionally leaves (consented close).
+   * Performs immediate full cleanup.
+   */
   onLeave(client: Client, _code: CloseCode): void {
-    // Free the seat
-    const seatIndex = this.seats.indexOf(client.sessionId);
+    this.performFullCleanup(client.sessionId);
+  }
+
+  /** Shared cleanup for both consented leave and reconnection timeout */
+  private performFullCleanup(sessionId: string): void {
+    const seatIndex = this.seats.indexOf(sessionId);
 
     // Clean up turret entity
     for (const [entityId, turret] of this.world.turrets) {
-      if (turret.playerId === client.sessionId) {
+      if (turret.playerId === sessionId) {
         this.world.destroyEntity(entityId);
         break;
       }
@@ -168,12 +244,18 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
     // The wallet survives until the player's seat reservation expires.
 
     if (seatIndex >= 0) this.seats[seatIndex] = null;
-    this.playerBets.delete(client.sessionId);
-    this.rtpEngine.removePlayer(client.sessionId);
-    this.wallet.removePlayer(client.sessionId);
-    this.state.players.delete(client.sessionId);
+    this.playerBets.delete(sessionId);
+    this.playerWeapons.delete(sessionId);
+    this.rtpEngine.removePlayer(sessionId);
+    this.wallet.removePlayer(sessionId);
+    this.state.players.delete(sessionId);
 
-    console.log(`[GameRoom] Player ${client.sessionId} left (was at seat ${seatIndex})`);
+    // Clean up rate-limit state
+    this.lastShotTimestamp.delete(sessionId);
+    this.rateLimitViolations.delete(sessionId);
+    this.reconnections.delete(sessionId);
+
+    console.log(`[GameRoom] Player ${sessionId} fully cleaned up (was at seat ${seatIndex})`);
   }
 
   onDispose(): void {
@@ -191,15 +273,56 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
   // ─── Message Handlers ───
 
   private handleFireWeapon(client: Client, message: FireWeaponMessage): void {
-    const betAmount = this.playerBets.get(client.sessionId) ?? DEFAULT_BET;
+    const { maxFireRateMs, rateLimitViolationThreshold, rateLimitWindowMs } =
+      GAME_BALANCE_CONFIG.security;
+    const now = Date.now();
+    const sessionId = client.sessionId;
 
-    // ─── Security: Out-of-funds pre-check (fast-fail) ───
-    const balance = this.wallet.getBalance(client.sessionId);
-    if (balance < betAmount) {
+    // ─── Security: Payload Validation ───
+    if (!Number.isFinite(message.angle)) {
+      console.warn(`[SECURITY] Invalid angle from ${sessionId}: ${message.angle}`);
+      return; // Silently drop
+    }
+
+    // ─── Security: Bet Tier Validation ───
+    const betAmount = this.playerBets.get(sessionId) ?? DEFAULT_BET;
+    if (!GameRoom.BET_TIER_SET.has(betAmount)) {
+      console.warn(`[SECURITY] Invalid bet tier from ${sessionId}: ${betAmount}`);
+      return; // Silently drop
+    }
+
+    // ─── Security: Rate Limiting (O(1) timestamp delta) ───
+    const lastShot = this.lastShotTimestamp.get(sessionId) ?? 0;
+    if (now - lastShot < maxFireRateMs) {
+      // Too fast — silently drop and track violation
+      const tracker = this.rateLimitViolations.get(sessionId);
+      if (tracker) {
+        // Reset window if expired
+        if (now - tracker.windowStart > rateLimitWindowMs) {
+          tracker.count = 0;
+          tracker.windowStart = now;
+        }
+        tracker.count++;
+
+        if (tracker.count >= rateLimitViolationThreshold) {
+          console.warn(`[SECURITY] Auto-kicking ${sessionId}: ${tracker.count} rate-limit violations in ${rateLimitWindowMs}ms`);
+          client.leave(4000, 'Auto-clicker detected');
+          return;
+        }
+      }
+      return; // Silently drop the shot
+    }
+    this.lastShotTimestamp.set(sessionId, now);
+
+    // ─── Security: Out-of-funds pre-check (weapon cost scaling) ───
+    const weaponType = this.playerWeapons.get(sessionId) ?? 'standard';
+    const totalCost = betAmount * WEAPON_COST[weaponType];
+    const balance = this.wallet.getBalance(sessionId);
+    if (balance < totalCost) {
       client.send(SERVER_MESSAGES.OUT_OF_FUNDS, {
         type: SERVER_MESSAGES.OUT_OF_FUNDS,
         currentCredits: balance,
-        requiredBet: betAmount,
+        requiredBet: totalCost,
       });
       return; // Do NOT create a fire intent
     }
@@ -212,14 +335,30 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
     // Queue a fire intent for the next tick (never mutate ECS mid-tick)
     const intentId = this.world.createEntity();
     const intent: import('../ecs/components.js').FireIntentComponent = {
-      playerId: client.sessionId,
+      playerId: sessionId,
       angle: message.angle,
       betAmount,
+      weaponType,
     };
     if (lockedTargetId !== undefined) {
       (intent as { lockedTargetId?: number }).lockedTargetId = lockedTargetId;
     }
     this.world.fireIntents.set(intentId, intent);
+  }
+
+  private handleSwitchWeapon(client: Client, message: SwitchWeaponMessage): void {
+    const wt = message.weaponType;
+    if (!(WEAPON_TYPES as readonly string[]).includes(wt)) {
+      console.warn(`[SECURITY] Invalid weapon type from ${client.sessionId}: ${wt}`);
+      return;
+    }
+    this.playerWeapons.set(client.sessionId, wt as WeaponType);
+
+    // Sync to schema for client UI
+    const player = this.state.players.get(client.sessionId);
+    if (player) {
+      player.weaponType = wt;
+    }
   }
 
   private handleChangeBet(client: Client, message: ChangeBetMessage): void {
@@ -325,6 +464,36 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
     // NOTE: result.collisionResolutions contains every shot's full
     // modifier breakdown for audit logging. In production, pipe this
     // to AuditLogger.logResolutions(result.collisionResolutions).
+
+    // Chain lightning hit events (for frontend trail rendering)
+    for (const chainHit of result.chainHits) {
+      const seatIndex = this.seats.indexOf(chainHit.projectileOwnerId);
+      this.broadcast(SERVER_MESSAGES.CHAIN_HIT, {
+        type: SERVER_MESSAGES.CHAIN_HIT,
+        projectileOwnerId: chainHit.projectileOwnerId,
+        seatIndex,
+        fromX: chainHit.fromX,
+        fromY: chainHit.fromY,
+        toX: chainHit.toX,
+        toY: chainHit.toY,
+        targetId: String(chainHit.targetId),
+        payout: chainHit.payout,
+      });
+    }
+
+    // AoE blast events (for frontend supernova visualization)
+    for (const aoe of result.aoeBlasts) {
+      const seatIndex = this.seats.indexOf(aoe.playerId);
+      this.broadcast(SERVER_MESSAGES.AOE_DESTROYED, {
+        type: SERVER_MESSAGES.AOE_DESTROYED,
+        x: aoe.x,
+        y: aoe.y,
+        totalPayout: aoe.totalPayout,
+        playerId: aoe.playerId,
+        seatIndex,
+        destroyedTargetIds: aoe.destroyedTargetIds.map(String),
+      });
+    }
   }
 
   // ─── Helpers ───

@@ -3,7 +3,7 @@
 // Per Phaser 4 skill contract: no Phaser imports, no methods.
 // ─────────────────────────────────────────────────────────────
 
-import type { SpaceObjectType, TurretPosition, EntityId, IVector2 } from '@space-shooter/shared';
+import type { SpaceObjectType, TurretPosition, EntityId, IVector2, WeaponType } from '@space-shooter/shared';
 
 /** 2D position in the game world */
 export interface PositionComponent {
@@ -76,6 +76,14 @@ export interface ProjectileComponent {
   bouncesRemaining: number;
   /** Optional lock-on target entity ID (homing + piercing) */
   lockedTargetId?: number;
+  /** Weapon type that spawned this projectile */
+  readonly weaponType: WeaponType;
+  /** Chain lightning: number of chain jumps completed */
+  chainCount: number;
+  /** Chain lightning: maximum allowed chain jumps */
+  readonly maxChains: number;
+  /** Chain lightning: set of entity IDs already hit (prevents double-chain) */
+  readonly hitTargetIds: Set<number>;
 }
 
 /** Turret data tied to a player */
@@ -101,6 +109,8 @@ export interface FireIntentComponent {
   readonly betAmount: number;
   /** Optional lock-on target entity ID */
   readonly lockedTargetId?: number;
+  /** Weapon type for this shot */
+  readonly weaponType: WeaponType;
 }
 
 // ─── Component Store Types ───

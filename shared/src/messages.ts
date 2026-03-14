@@ -3,7 +3,7 @@
 // These define the WebSocket message contracts.
 // ─────────────────────────────────────────────────────────────
 
-import type { TurretPosition, SpaceObjectType, IVector2 } from './types.js';
+import type { TurretPosition, SpaceObjectType, IVector2, WeaponType } from './types.js';
 
 // ─── Client → Server Messages ───
 
@@ -33,12 +33,19 @@ export interface PointerMoveMessage {
   readonly angle: number; // radians
 }
 
+/** Player switches active weapon type */
+export interface SwitchWeaponMessage {
+  readonly type: 'switchWeapon';
+  readonly weaponType: WeaponType;
+}
+
 /** Union type for all client → server messages */
 export type ClientMessage =
   | FireWeaponMessage
   | ChangeBetMessage
   | SelectPositionMessage
-  | PointerMoveMessage;
+  | PointerMoveMessage
+  | SwitchWeaponMessage;
 
 // ─── Server → Client Messages ───
 
@@ -119,6 +126,29 @@ export interface PlayerLeftMessage {
   readonly playerId: string;
 }
 
+/** AoE blast destroyed multiple targets (Supernova Bomb) */
+export interface AoeDestroyedMessage {
+  readonly type: 'aoeDestroyed';
+  readonly x: number;
+  readonly y: number;
+  readonly totalPayout: number;
+  readonly playerId: string;
+  readonly seatIndex: number;
+  readonly destroyedTargetIds: readonly string[];
+}
+
+/** Chain lightning hit a target (for frontend trail rendering) */
+export interface ChainHitMessage {
+  readonly type: 'chainHit';
+  readonly projectileOwnerId: string;
+  readonly fromX: number;
+  readonly fromY: number;
+  readonly toX: number;
+  readonly toY: number;
+  readonly targetId: string;
+  readonly payout: number;
+}
+
 /** Union type for all server → client messages */
 export type ServerMessage =
   | ObjectDestroyedMessage
@@ -130,7 +160,9 @@ export type ServerMessage =
   | OutOfFundsMessage
   | RemoteShootMessage
   | PlayerJoinedMessage
-  | PlayerLeftMessage;
+  | PlayerLeftMessage
+  | AoeDestroyedMessage
+  | ChainHitMessage;
 
 // ─── Message Type Constants ───
 
@@ -139,6 +171,7 @@ export const CLIENT_MESSAGES = {
   CHANGE_BET: 'changeBet',
   SELECT_POSITION: 'selectPosition',
   POINTER_MOVE: 'pointerMove',
+  SWITCH_WEAPON: 'switchWeapon',
 } as const;
 
 export const SERVER_MESSAGES = {
@@ -152,4 +185,6 @@ export const SERVER_MESSAGES = {
   REMOTE_SHOOT: 'remoteShoot',
   PLAYER_JOINED: 'playerJoined',
   PLAYER_LEFT: 'playerLeft',
+  AOE_DESTROYED: 'aoeDestroyed',
+  CHAIN_HIT: 'chainHit',
 } as const;

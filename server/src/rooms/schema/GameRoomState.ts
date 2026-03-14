@@ -19,6 +19,8 @@ export class PlayerSchema extends Schema {
   @type('number') turretX: number = 0;
   @type('number') turretY: number = 0;
   @type('number') turretAngle: number = 0; // Aim angle from pointer_move
+  @type('boolean') connected: boolean = true; // False during reconnection window
+  @type('string') weaponType: string = 'standard'; // WeaponType
 }
 
 /** Space object state synchronized to all clients */

@@ -168,6 +168,55 @@ export class FXManager {
     }
   }
 
+  /**
+   * Supernova blast — massive expanding shockwave ring.
+   * Creates a dramatic concentric burst radiating outward.
+   */
+  playSupernovaBlast(x: number, y: number): void {
+    // Outer shockwave ring — white/cyan particles in a circle
+    const ringCount = 40;
+    for (let i = 0; i < ringCount; i++) {
+      const p = this.acquire();
+      if (!p) break;
+
+      const angle = (Math.PI * 2 * i) / ringCount;
+      const speed = 400 + Math.random() * 200;
+
+      p.x = x;
+      p.y = y;
+      p.vx = Math.cos(angle) * speed;
+      p.vy = Math.sin(angle) * speed;
+      p.life = 0.6 + Math.random() * 0.4;
+      p.maxLife = p.life;
+      p.size = 6 + Math.random() * 4;
+      const colors = ['#ffffff', '#00FFFF', '#CC44FF'];
+      p.color = colors[i % 3];
+      p.type = 'explosion';
+      p.gravity = 0;
+    }
+
+    // Inner golden burst
+    const burstCount = 20;
+    for (let i = 0; i < burstCount; i++) {
+      const p = this.acquire();
+      if (!p) break;
+
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 100 + Math.random() * 150;
+
+      p.x = x + (Math.random() - 0.5) * 20;
+      p.y = y + (Math.random() - 0.5) * 20;
+      p.vx = Math.cos(angle) * speed;
+      p.vy = Math.sin(angle) * speed;
+      p.life = 0.8 + Math.random() * 0.5;
+      p.maxLife = p.life;
+      p.size = 3 + Math.random() * 5;
+      p.color = '#FFD700';
+      p.type = 'explosion';
+      p.gravity = 0;
+    }
+  }
+
   // ─── Update & Render ───
 
   /** Advance all active particles by deltaSec */

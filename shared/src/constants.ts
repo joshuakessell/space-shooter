@@ -2,6 +2,8 @@
 // Game Constants — Shared between client and server
 // ─────────────────────────────────────────────────────────────
 
+import type { WeaponType } from './types.js';
+
 /** Game world dimensions (pixels) */
 export const GAME_WIDTH = 1920;
 export const GAME_HEIGHT = 1080;
@@ -93,6 +95,27 @@ export const QUADTREE_MAX_LEVELS = 5;
 
 /** Homing missile turn rate (lerp factor per tick, 0–1) */
 export const HOMING_TURN_RATE = 0.08;
+
+// ─── Weapon System ───
+
+/** Cost multiplier per weapon type (applied to betAmount) */
+export const WEAPON_COST: Record<WeaponType, number> = {
+  standard: 1,
+  spread: 3,
+  lightning: 5,
+};
+
+/** Spread shot angle offset in radians (15°) */
+export const SPREAD_ANGLE_OFFSET = Math.PI / 12;
+
+/** Chain lightning: max search radius for next target (pixels) */
+export const CHAIN_LIGHTNING_RADIUS = 300;
+
+/** Chain lightning: max number of chain jumps */
+export const CHAIN_LIGHTNING_MAX_CHAINS = 4;
+
+/** Supernova bomb: AoE blast radius (pixels) */
+export const AOE_BLAST_RADIUS = 400;
 
 /** Seat colors — distinct hex color per seat (0–5) */
 export const SEAT_COLORS: readonly string[] = [

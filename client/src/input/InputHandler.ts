@@ -7,6 +7,7 @@
 // ─────────────────────────────────────────────────────────────
 
 import type { SyncedSpaceObjectState } from '../network/ColyseusClient.js';
+import type { WeaponType } from '@space-shooter/shared';
 
 export interface FireIntent {
   angle: number;
@@ -27,6 +28,7 @@ const LOCK_ON_HIT_RADII: Record<string, number> = {
   ROCKET: 20,
   NEBULA_BEAST: 50,
   COSMIC_WHALE: 55,
+  SUPERNOVA_BOMB: 48,
 };
 
 /**
@@ -47,11 +49,16 @@ export class InputHandler {
   private lockedTargetId: string | null = null;
   private lockedTargetPos: { x: number; y: number } | null = null;
 
+  // Weapon switching
+  private activeWeaponType: WeaponType = 'standard';
+  public onWeaponChange: ((weaponType: WeaponType) => void) | null = null;
+
   constructor(containerId: string) {
     const container = document.getElementById(containerId);
     if (!container) throw new Error(`Container '${containerId}' not found`);
     this.canvas = container;
     this.setupListeners();
+    this.setupWeaponKeys();
   }
 
   private setupListeners(): void {
@@ -207,6 +214,27 @@ export class InputHandler {
   /** Check if mouse/touch is currently held down (for auto-fire) */
   isMouseDown(): boolean {
     return this.state.mouseDown;
+  }
+
+  /** Set up weapon switching keyboard shortcuts: Q=standard, W=spread, E=lightning */
+  private setupWeaponKeys(): void {
+    document.addEventListener('keydown', (e: KeyboardEvent) => {
+      let newWeapon: WeaponType | null = null;
+      switch (e.key.toLowerCase()) {
+        case 'q': newWeapon = 'standard'; break;
+        case 'w': newWeapon = 'spread'; break;
+        case 'e': newWeapon = 'lightning'; break;
+      }
+      if (newWeapon && newWeapon !== this.activeWeaponType) {
+        this.activeWeaponType = newWeapon;
+        this.onWeaponChange?.(newWeapon);
+      }
+    });
+  }
+
+  /** Get the currently selected weapon type */
+  getWeaponType(): WeaponType {
+    return this.activeWeaponType;
   }
 
   destroy(): void {

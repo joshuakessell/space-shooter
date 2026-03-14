@@ -13,7 +13,7 @@ export enum TurretPosition {
   BOTTOM_RIGHT = 'BOTTOM_RIGHT',
 }
 
-/** Eight space object types with increasing rarity/multiplier */
+/** Nine space object types with increasing rarity/multiplier */
 export enum SpaceObjectType {
   ASTEROID = 'ASTEROID',
   ROCKET = 'ROCKET',
@@ -23,7 +23,14 @@ export enum SpaceObjectType {
   METEOR_SHOWER = 'METEOR_SHOWER',
   NEBULA_BEAST = 'NEBULA_BEAST',
   COSMIC_WHALE = 'COSMIC_WHALE',
+  SUPERNOVA_BOMB = 'SUPERNOVA_BOMB',
 }
+
+/** Weapon types — determines projectile behavior and cost scaling */
+export type WeaponType = 'standard' | 'spread' | 'lightning';
+
+/** Valid weapon types for runtime validation */
+export const WEAPON_TYPES: readonly WeaponType[] = ['standard', 'spread', 'lightning'] as const;
 
 /** 2D vector */
 export interface IVector2 {

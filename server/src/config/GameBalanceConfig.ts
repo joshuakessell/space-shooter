@@ -58,6 +58,18 @@ export interface IGameBalanceConfig {
     readonly appliesToMaxMultiplier: number; // Only applies to targets ≤ this multiplier
   };
 
+  // ─── Security / Anti-Cheat ───
+  readonly security: {
+    /** Minimum ms between shots per player (O(1) timestamp delta) */
+    readonly maxFireRateMs: number;
+    /** Rate-limit violations before auto-kick */
+    readonly rateLimitViolationThreshold: number;
+    /** Sliding window for violation counting */
+    readonly rateLimitWindowMs: number;
+    /** Seconds to reserve seat for a disconnected player */
+    readonly reconnectionTimeoutSec: number;
+  };
+
   /** Per-object-type balance data (multiplier, radius, spawn weight) */
   readonly objectTypes: Record<SpaceObjectType, IObjectTypeConfig>;
 }
@@ -109,6 +121,13 @@ export const GAME_BALANCE_CONFIG: IGameBalanceConfig = {
     appliesToMaxMultiplier: 10, // Only for targets ≤ 10x
   },
 
+  security: {
+    maxFireRateMs: 150,                // 150ms cooldown per shot
+    rateLimitViolationThreshold: 10,   // 10 violations → auto-kick
+    rateLimitWindowMs: 3000,           // 3 second sliding window
+    reconnectionTimeoutSec: 30,        // 30 second reconnection window
+  },
+
   objectTypes: {
     [SpaceObjectType.ASTEROID]: {
       multiplier: 2,
@@ -157,6 +176,12 @@ export const GAME_BALANCE_CONFIG: IGameBalanceConfig = {
       destroyProbability: 0.0098,  // 100 × 0.0098 = 0.98
       collisionRadius: 22,
       spawnWeight: 1.5,
+    },
+    [SpaceObjectType.SUPERNOVA_BOMB]: {
+      multiplier: 20,
+      destroyProbability: 0.049,   // 20 × 0.049 = 0.98 (AoE on kill)
+      collisionRadius: 45,
+      spawnWeight: 1,
     },
   },
 };

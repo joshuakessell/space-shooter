@@ -5,7 +5,7 @@
 // CONFIG-DRIVEN: All thresholds from GameBalanceConfig.
 // ─────────────────────────────────────────────────────────────
 
-import type { EntityId, IPayoutEvent } from '@space-shooter/shared';
+import type { EntityId, IPayoutEvent, WeaponType } from '@space-shooter/shared';
 import {
   FIXED_TIMESTEP_SEC,
   FIXED_TIMESTEP_MS,
@@ -14,6 +14,9 @@ import {
   MAX_BOUNCES,
   BET_TIERS,
   TURRET_POSITIONS,
+  WEAPON_COST,
+  SPREAD_ANGLE_OFFSET,
+  CHAIN_LIGHTNING_MAX_CHAINS,
 } from '@space-shooter/shared';
 import type { World } from '../World.js';
 import type { FireIntentComponent } from '../components.js';
@@ -22,7 +25,7 @@ import { projectileSystem } from './ProjectileSystem.js';
 import { collisionSystem } from './CollisionSystem.js';
 import type { CollisionEvent } from './CollisionSystem.js';
 import { destroySystem } from './DestroySystem.js';
-import type { ICollisionResolution } from './DestroySystem.js';
+import type { ICollisionResolution, ChainHitEvent, AoeDestroyedEvent } from './DestroySystem.js';
 import { SpawnSystem } from './SpawnSystem.js';
 import { cleanupSystem } from './CleanupSystem.js';
 import type { RtpEngine } from '../../services/RtpEngine.js';
@@ -37,6 +40,10 @@ export interface TickResult {
   readonly rejectedShots: readonly RejectedShot[];
   /** Every collision resolution this tick — for audit logging */
   readonly collisionResolutions: readonly ICollisionResolution[];
+  /** Chain lightning hit events for frontend trail rendering */
+  readonly chainHits: readonly ChainHitEvent[];
+  /** AoE blast events for frontend supernova visualization */
+  readonly aoeBlasts: readonly AoeDestroyedEvent[];
 }
 
 export interface NewProjectileInfo {
@@ -46,6 +53,7 @@ export interface NewProjectileInfo {
   readonly y: number;
   readonly angle: number;
   readonly lockedTargetId?: number;
+  readonly weaponType: WeaponType;
 }
 
 export interface RejectedShot {
@@ -101,13 +109,15 @@ export class SystemRunner {
 
     // ─── 2. Input: Process Fire Intents ───
     for (const [intentId, intent] of this.world.fireIntents) {
-      const result = this.processFireIntent(intent);
-      if ('reason' in result) {
-        rejectedShots.push(result);
+      const results = this.processFireIntent(intent);
+      if ('reason' in results) {
+        rejectedShots.push(results);
       } else {
-        newProjectiles.push(result);
-        // Track bet in room economy
-        this.economy.recordBet(intent.betAmount);
+        for (const proj of results) {
+          newProjectiles.push(proj);
+        }
+        // Track bet in room economy (total cost for weapon)
+        this.economy.recordBet(intent.betAmount * WEAPON_COST[intent.weaponType]);
       }
       // Intents are consumed immediately
       this.world.fireIntents.delete(intentId);
@@ -125,8 +135,8 @@ export class SystemRunner {
     // ─── 6. Collision: Detect hits ───
     const collisions: CollisionEvent[] = collisionSystem(this.world);
 
-    // ─── 7. Destroy: 4-layer RTP roll + first-kill mutex + piñata ───
-    const { payouts, resolutions } = destroySystem(
+    // ─── 7. Destroy: 4-layer RTP roll + first-kill mutex + piñata + chain + AoE ───
+    const { payouts, resolutions, chainHits, aoeBlasts } = destroySystem(
       this.world,
       collisions,
       this.rtpEngine,
@@ -146,14 +156,18 @@ export class SystemRunner {
       newProjectiles,
       rejectedShots,
       collisionResolutions: resolutions,
+      chainHits,
+      aoeBlasts,
     };
   }
 
   /**
-   * Process a single fire intent: validate, deduct bet, create projectile entity.
+   * Process a single fire intent: validate, deduct bet, create projectile entity(ies).
+   * Returns array of NewProjectileInfo (1 for standard/lightning, 3 for spread)
+   * or a RejectedShot if validation fails.
    */
-  private processFireIntent(intent: FireIntentComponent): NewProjectileInfo | RejectedShot {
-    const { playerId, angle, betAmount, lockedTargetId } = intent;
+  private processFireIntent(intent: FireIntentComponent): NewProjectileInfo[] | RejectedShot {
+    const { playerId, angle, betAmount, lockedTargetId, weaponType } = intent;
 
     // Validate bet is a valid tier
     if (!(BET_TIERS as readonly number[]).includes(betAmount)) {
@@ -169,8 +183,9 @@ export class SystemRunner {
       return { playerId, reason: 'Maximum active projectiles reached' };
     }
 
-    // Deduct bet from wallet (atomic)
-    if (!this.wallet.deductBet(playerId, betAmount)) {
+    // Deduct total weapon cost atomically
+    const totalCost = betAmount * WEAPON_COST[weaponType];
+    if (!this.wallet.deductBet(playerId, totalCost)) {
       return { playerId, reason: 'Insufficient credits' };
     }
 
@@ -188,7 +203,45 @@ export class SystemRunner {
       }
     }
 
-    // Create projectile entity (pooled components)
+    // Spawn projectile(s) based on weapon type
+    const results: NewProjectileInfo[] = [];
+
+    switch (weaponType) {
+      case 'spread': {
+        // 3 projectiles at -15°, 0°, +15° offsets
+        const offsets = [-SPREAD_ANGLE_OFFSET, 0, SPREAD_ANGLE_OFFSET];
+        for (const offset of offsets) {
+          const projAngle = angle + offset;
+          results.push(this.spawnProjectile(playerId, turretX, turretY, projAngle, betAmount, weaponType, lockedTargetId));
+        }
+        break;
+      }
+      case 'lightning': {
+        // 1 projectile with chain lightning fields
+        results.push(this.spawnProjectile(playerId, turretX, turretY, angle, betAmount, weaponType, lockedTargetId));
+        break;
+      }
+      default: {
+        // standard: 1 projectile
+        results.push(this.spawnProjectile(playerId, turretX, turretY, angle, betAmount, weaponType, lockedTargetId));
+        break;
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Create a single projectile entity with pooled components.
+   */
+  private spawnProjectile(
+    playerId: string,
+    turretX: number, turretY: number,
+    angle: number,
+    betAmount: number,
+    weaponType: WeaponType,
+    lockedTargetId?: number,
+  ): NewProjectileInfo {
     const entityId = this.world.createEntity();
 
     const pos = this.world.positionPool.acquire();
@@ -201,6 +254,10 @@ export class SystemRunner {
     (projData as { betAmount: number }).betAmount = betAmount;
     projData.angle = angle;
     projData.bouncesRemaining = MAX_BOUNCES;
+    (projData as { weaponType: WeaponType }).weaponType = weaponType;
+    projData.chainCount = 0;
+    (projData as { maxChains: number }).maxChains = weaponType === 'lightning' ? CHAIN_LIGHTNING_MAX_CHAINS : 0;
+    projData.hitTargetIds.clear();
     if (lockedTargetId !== undefined) {
       projData.lockedTargetId = lockedTargetId;
     }
@@ -210,7 +267,7 @@ export class SystemRunner {
     (bound as { radius: number }).radius = PROJECTILE_RADIUS;
     this.world.bounds.set(entityId, bound);
 
-    const result: NewProjectileInfo = { entityId, ownerId: playerId, x: turretX, y: turretY, angle };
+    const result: NewProjectileInfo = { entityId, ownerId: playerId, x: turretX, y: turretY, angle, weaponType };
     if (lockedTargetId !== undefined) {
       (result as { lockedTargetId?: number }).lockedTargetId = lockedTargetId;
     }

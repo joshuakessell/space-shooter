@@ -51,11 +51,13 @@ export class World {
   );
 
   public readonly projectilePool = new ObjectPool<ProjectileComponent>(
-    () => ({ ownerId: '', betAmount: 0, angle: 0, bouncesRemaining: 0 }),
+    () => ({ ownerId: '', betAmount: 0, angle: 0, bouncesRemaining: 0, weaponType: 'standard' as const, chainCount: 0, maxChains: 0, hitTargetIds: new Set<number>() }),
     (p) => {
-      const m = p as { ownerId: string; betAmount: number; angle: number; bouncesRemaining: number; lockedTargetId?: number };
+      const m = p as { ownerId: string; betAmount: number; angle: number; bouncesRemaining: number; lockedTargetId?: number; weaponType: string; chainCount: number; maxChains: number; hitTargetIds: Set<number> };
       m.ownerId = ''; m.betAmount = 0; m.angle = 0; m.bouncesRemaining = 0;
       delete m.lockedTargetId;
+      m.weaponType = 'standard'; m.chainCount = 0; m.maxChains = 0;
+      m.hitTargetIds.clear();
     },
     100,
   );

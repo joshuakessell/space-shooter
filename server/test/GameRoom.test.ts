@@ -517,6 +517,10 @@ describe('ProjectileSystem', () => {
       betAmount: 1,
       angle: 0,
       bouncesRemaining: 10,
+      weaponType: 'standard',
+      chainCount: 0,
+      maxChains: 0,
+      hitTargetIds: new Set(),
     });
 
     projectileSystem(world, 0.1);
@@ -534,6 +538,10 @@ describe('ProjectileSystem', () => {
       betAmount: 1,
       angle: 0,
       bouncesRemaining: 10,
+      weaponType: 'standard',
+      chainCount: 0,
+      maxChains: 0,
+      hitTargetIds: new Set(),
     });
 
     projectileSystem(world, 0.1);
@@ -569,9 +577,9 @@ describe('DestroySystem (4-Layer)', () => {
 
     // Two projectiles from different players hit same target
     const proj1 = world.createEntity();
-    world.projectiles.set(proj1, { ownerId: 'p1', betAmount: 10, angle: 0, bouncesRemaining: 10 });
+    world.projectiles.set(proj1, { ownerId: 'p1', betAmount: 10, angle: 0, bouncesRemaining: 10, weaponType: 'standard' as const, chainCount: 0, maxChains: 0, hitTargetIds: new Set() });
     const proj2 = world.createEntity();
-    world.projectiles.set(proj2, { ownerId: 'p2', betAmount: 10, angle: 0, bouncesRemaining: 10 });
+    world.projectiles.set(proj2, { ownerId: 'p2', betAmount: 10, angle: 0, bouncesRemaining: 10, weaponType: 'standard' as const, chainCount: 0, maxChains: 0, hitTargetIds: new Set() });
 
     const collisions = [
       { projectileId: proj1, objectId: obj, projectileOwnerId: 'p1', betAmount: 10 },
@@ -611,7 +619,7 @@ describe('DestroySystem (4-Layer)', () => {
     });
 
     const proj = world.createEntity();
-    world.projectiles.set(proj, { ownerId: 'p1', betAmount: 50, angle: 0, bouncesRemaining: 10 });
+    world.projectiles.set(proj, { ownerId: 'p1', betAmount: 50, angle: 0, bouncesRemaining: 10, weaponType: 'standard' as const, chainCount: 0, maxChains: 0, hitTargetIds: new Set() });
 
     const collisions = [
       { projectileId: proj, objectId: obj, projectileOwnerId: 'p1', betAmount: 50 },
@@ -645,7 +653,7 @@ describe('DestroySystem (4-Layer)', () => {
     });
 
     const proj = world.createEntity();
-    world.projectiles.set(proj, { ownerId: 'p1', betAmount: 5, angle: 0, bouncesRemaining: 10 });
+    world.projectiles.set(proj, { ownerId: 'p1', betAmount: 5, angle: 0, bouncesRemaining: 10, weaponType: 'standard' as const, chainCount: 0, maxChains: 0, hitTargetIds: new Set() });
 
     const collisions = [
       { projectileId: proj, objectId: obj, projectileOwnerId: 'p1', betAmount: 5 },
@@ -680,7 +688,7 @@ describe('CollisionSystem', () => {
 
     const proj = world.createEntity();
     world.positions.set(proj, { x: 505, y: 500 });
-    world.projectiles.set(proj, { ownerId: 'p1', betAmount: 5, angle: 0, bouncesRemaining: 10 });
+    world.projectiles.set(proj, { ownerId: 'p1', betAmount: 5, angle: 0, bouncesRemaining: 10, weaponType: 'standard' as const, chainCount: 0, maxChains: 0, hitTargetIds: new Set() });
     world.bounds.set(proj, { radius: PROJECTILE_RADIUS });
 
     const collisions = collisionSystem(world);
@@ -701,7 +709,7 @@ describe('CollisionSystem', () => {
 
     const proj = world.createEntity();
     world.positions.set(proj, { x: 800, y: 800 });
-    world.projectiles.set(proj, { ownerId: 'p1', betAmount: 1, angle: 0, bouncesRemaining: 10 });
+    world.projectiles.set(proj, { ownerId: 'p1', betAmount: 1, angle: 0, bouncesRemaining: 10, weaponType: 'standard' as const, chainCount: 0, maxChains: 0, hitTargetIds: new Set() });
     world.bounds.set(proj, { radius: PROJECTILE_RADIUS });
 
     const collisions = collisionSystem(world);
@@ -777,6 +785,7 @@ describe('SystemRunner (with Economy)', () => {
       playerId: 'p1',
       angle: -Math.PI / 2,
       betAmount: 10,
+      weaponType: 'standard',
     });
 
     // Run one tick

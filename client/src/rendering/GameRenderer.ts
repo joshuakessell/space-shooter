@@ -37,6 +37,7 @@ const OBJECT_COLORS: Record<string, string> = {
   [SpaceObjectType.METEOR_SHOWER]:  '#FF4500',
   [SpaceObjectType.NEBULA_BEAST]:   '#9370DB',
   [SpaceObjectType.COSMIC_WHALE]:   '#00CED1',
+  [SpaceObjectType.SUPERNOVA_BOMB]: '#FF00FF',
 };
 
 /** Object radius for rendering */
@@ -49,6 +50,7 @@ const OBJECT_RENDER_RADII: Record<string, number> = {
   [SpaceObjectType.METEOR_SHOWER]:  26,
   [SpaceObjectType.NEBULA_BEAST]:   24,
   [SpaceObjectType.COSMIC_WHALE]:   22,
+  [SpaceObjectType.SUPERNOVA_BOMB]: 48,
 };
 
 /** Short display names (emoji) */
@@ -61,6 +63,7 @@ const OBJECT_NAMES: Record<string, string> = {
   [SpaceObjectType.METEOR_SHOWER]:  '☄️',
   [SpaceObjectType.NEBULA_BEAST]:   '🐙',
   [SpaceObjectType.COSMIC_WHALE]:   '🐋',
+  [SpaceObjectType.SUPERNOVA_BOMB]: '💥',
 };
 
 /** Payout notification */
@@ -84,6 +87,16 @@ export interface GhostLaser {
   age: number;
   color: string;     // seat color for tinting
   id: number;
+}
+
+/** Chain lightning trail segment */
+interface LightningTrail {
+  fromX: number;
+  fromY: number;
+  toX: number;
+  toY: number;
+  color: string;
+  age: number;    // seconds alive
 }
 
 /** Coin particle for win shower animation */
@@ -130,6 +143,9 @@ export class GameRenderer {
 
   // Coin shower particles
   private readonly coinParticles: CoinParticle[] = [];
+
+  // Lightning trail segments
+  private readonly lightningTrails: LightningTrail[] = [];
 
   /** Callback fired when local player's coin shower reaches turret */
   public onLocalCoinsArrived: ((payout: number) => void) | null = null;
@@ -367,6 +383,9 @@ export class GameRenderer {
     if (this.jackpotActive) {
       this.renderJackpotPopup(ctx, deltaSec);
     }
+
+    // ─── Lightning Trails ───
+    this.updateAndRenderLightningTrails(ctx, deltaSec);
 
     // ─── Restore shake offset ───
     ctx.restore();
@@ -958,6 +977,56 @@ export class GameRenderer {
 
     ctx.shadowBlur = 0;
     ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
+  /** Add a lightning trail segment (from chain hit event) */
+  addLightningTrail(fromX: number, fromY: number, toX: number, toY: number, seatIndex: number): void {
+    const color = SEAT_COLORS[seatIndex] ?? '#00CCFF';
+    this.lightningTrails.push({ fromX, fromY, toX, toY, color, age: 0 });
+  }
+
+  /** Render and update lightning trail segments */
+  private updateAndRenderLightningTrails(ctx: CanvasRenderingContext2D, deltaSec: number): void {
+    for (let i = this.lightningTrails.length - 1; i >= 0; i--) {
+      const trail = this.lightningTrails[i];
+      trail.age += deltaSec;
+
+      // Expire after 0.5 seconds
+      if (trail.age > 0.5) {
+        this.lightningTrails[i] = this.lightningTrails.at(-1)!;
+        this.lightningTrails.pop();
+        continue;
+      }
+
+      const alpha = Math.max(0, 1 - trail.age / 0.5);
+      ctx.globalAlpha = alpha;
+
+      // Jagged electric line between points
+      ctx.strokeStyle = trail.color;
+      ctx.lineWidth = 3;
+      ctx.shadowColor = '#00CCFF';
+      ctx.shadowBlur = 15;
+
+      const dx = trail.toX - trail.fromX;
+      const dy = trail.toY - trail.fromY;
+      const dist = Math.hypot(dx, dy);
+      const segments = Math.max(3, Math.floor(dist / 30));
+
+      ctx.beginPath();
+      ctx.moveTo(trail.fromX, trail.fromY);
+
+      for (let s = 1; s < segments; s++) {
+        const t = s / segments;
+        const midX = trail.fromX + dx * t + (Math.random() - 0.5) * 20;
+        const midY = trail.fromY + dy * t + (Math.random() - 0.5) * 20;
+        ctx.lineTo(midX, midY);
+      }
+
+      ctx.lineTo(trail.toX, trail.toY);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
     ctx.globalAlpha = 1;
   }
 

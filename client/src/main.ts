@@ -6,9 +6,10 @@
 // turret recoil + jackpot popup + coin shower audio sync.
 // ─────────────────────────────────────────────────────────────
 
-import { BET_TIERS, GAME_WIDTH, GAME_HEIGHT, SEAT_COORDINATES, SEAT_COLORS } from '@space-shooter/shared';
+import { BET_TIERS, GAME_WIDTH, GAME_HEIGHT, SEAT_COORDINATES, SEAT_COLORS, SPREAD_ANGLE_OFFSET } from '@space-shooter/shared';
+import type { WeaponType } from '@space-shooter/shared';
 import { GameClient } from './network/ColyseusClient.js';
-import type { GameRoomStateSnapshot, PayoutEventData } from './network/ColyseusClient.js';
+import type { GameRoomStateSnapshot, PayoutEventData, AoeEventData, ChainHitEventData } from './network/ColyseusClient.js';
 import { GameRenderer } from './rendering/GameRenderer.js';
 import { InputHandler } from './input/InputHandler.js';
 import { HUDManager } from './ui/HUDManager.js';
@@ -35,6 +36,7 @@ let lastFireTime = 0;
 let lastFrameTime = 0;
 let lastSentAngle = 0;
 let currentBet: number = BET_TIERS[0];
+let currentWeapon: WeaponType = 'standard';
 
 /**
  * Boot sequence:
@@ -70,6 +72,13 @@ async function boot(): Promise<void> {
     currentBet = newBet;
     client.changeBet(currentBet);
     console.log(`[SpaceShooter] Bet changed to $${currentBet}`);
+  };
+
+  // Weapon switching from InputHandler
+  input.onWeaponChange = (weaponType: WeaponType) => {
+    currentWeapon = weaponType;
+    client.switchWeapon(weaponType);
+    console.log(`[SpaceShooter] Weapon switched to: ${weaponType}`);
   };
 
   // 5. Network
@@ -146,6 +155,33 @@ async function boot(): Promise<void> {
     onError: (error: Error) => {
       console.error('[SpaceShooter] Connection error:', error);
     },
+    onAoeDestroyed: (event: AoeEventData) => {
+      console.log(`[SpaceShooter] ☄️ Supernova blast! +$${event.totalPayout} (${event.destroyedTargetIds.length} targets)`);
+
+      // Supernova blast FX
+      fxManager.playSupernovaBlast(event.x, event.y);
+      renderer.applyShakeForMultiplier(50); // Massive screen shake
+      audio.playExplosion(50); // Big explosion sound
+
+      // Coin shower for the aggregate payout
+      const winnerCoords = SEAT_COORDINATES[event.seatIndex];
+      if (winnerCoords) {
+        const isLocal = event.playerId === client.sessionId;
+        renderer.addCoinShower(
+          event.x, event.y,
+          winnerCoords.x, winnerCoords.y,
+          event.seatIndex,
+          event.totalPayout,
+          isLocal,
+        );
+      }
+    },
+    onChainHit: (event: ChainHitEventData) => {
+      // Render lightning trail between chain hit positions
+      renderer.addLightningTrail(event.fromX, event.fromY, event.toX, event.toY, event.seatIndex);
+      fxManager.playImpactSpark(event.toX, event.toY, '#00CCFF');
+      audio.playShoot(); // Quick zap sound
+    },
   });
 
   await client.joinRoom();
@@ -190,8 +226,16 @@ function gameLoop(timestamp: number): void {
     client.fireWeapon(aimAngle, currentBet, lockedTarget?.id);
     lastFireTime = now;
 
-    // Client-side prediction: ghost laser + recoil + audio
-    renderer.addPredictedLaser(localTurretX, localTurretY, aimAngle, localSeatIndex);
+    // Client-side prediction: ghost laser(s) + recoil + audio
+    if (currentWeapon === 'spread') {
+      // Spread: 3 predicted ghost lasers
+      const offsets = [-SPREAD_ANGLE_OFFSET, 0, SPREAD_ANGLE_OFFSET];
+      for (const offset of offsets) {
+        renderer.addPredictedLaser(localTurretX, localTurretY, aimAngle + offset, localSeatIndex);
+      }
+    } else {
+      renderer.addPredictedLaser(localTurretX, localTurretY, aimAngle, localSeatIndex);
+    }
     renderer.triggerRecoil(localSeatIndex, aimAngle);
     audio.playShoot();
   }

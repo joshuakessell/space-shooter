@@ -24,6 +24,7 @@ export interface SyncedPlayerState {
   turretX: number;
   turretY: number;
   turretAngle: number;
+  weaponType: string;
 }
 
 export interface SyncedSpaceObjectState {
@@ -44,6 +45,28 @@ export interface PayoutEventData {
   seatIndex: number;
 }
 
+/** AoE blast event from server */
+export interface AoeEventData {
+  x: number;
+  y: number;
+  totalPayout: number;
+  playerId: string;
+  seatIndex: number;
+  destroyedTargetIds: string[];
+}
+
+/** Chain hit event from server */
+export interface ChainHitEventData {
+  projectileOwnerId: string;
+  seatIndex: number;
+  fromX: number;
+  fromY: number;
+  toX: number;
+  toY: number;
+  targetId: string;
+  payout: number;
+}
+
 /** Event callbacks */
 export interface GameClientCallbacks {
   onStateChange: (state: GameRoomStateSnapshot) => void;
@@ -53,6 +76,8 @@ export interface GameClientCallbacks {
   onRemoteShoot: (seatIndex: number, angle: number, lockedTargetId?: string) => void;
   onJoined: (sessionId: string) => void;
   onError: (error: Error) => void;
+  onAoeDestroyed?: (event: AoeEventData) => void;
+  onChainHit?: (event: ChainHitEventData) => void;
 }
 
 export interface GameRoomStateSnapshot {
@@ -110,6 +135,16 @@ export class GameClient {
         this.callbacks.onRemoteShoot(data.seatIndex, data.angle, data.lockedTargetId);
       });
 
+      // Listen for AoE destroyed events
+      this.room.onMessage(SERVER_MESSAGES.AOE_DESTROYED, (data: AoeEventData) => {
+        this.callbacks.onAoeDestroyed?.(data);
+      });
+
+      // Listen for chain hit events
+      this.room.onMessage(SERVER_MESSAGES.CHAIN_HIT, (data: ChainHitEventData) => {
+        this.callbacks.onChainHit?.(data);
+      });
+
     } catch (err) {
       this.callbacks.onError(err instanceof Error ? err : new Error(String(err)));
     }
@@ -145,6 +180,15 @@ export class GameClient {
     });
   }
 
+  /** Send switch weapon message */
+  switchWeapon(weaponType: string): void {
+    if (!this.room) return;
+    this.room.send(CLIENT_MESSAGES.SWITCH_WEAPON, {
+      type: CLIENT_MESSAGES.SWITCH_WEAPON,
+      weaponType,
+    });
+  }
+
   /** Disconnect from the room */
   async leave(): Promise<void> {
     if (this.room) {
@@ -172,6 +216,7 @@ export class GameClient {
           turretX: Number(p['turretX'] ?? 0),
           turretY: Number(p['turretY'] ?? 0),
           turretAngle: Number(p['turretAngle'] ?? 0),
+          weaponType: typeof p['weaponType'] === 'string' ? p['weaponType'] : 'standard',
         });
       });
     }
