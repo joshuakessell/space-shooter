@@ -126,3 +126,33 @@ export const SEAT_COLORS: readonly string[] = [
   '#CC44FF', // seat 4 — Purple
   '#FF8844', // seat 5 — Orange
 ];
+
+// ─── Feature Targets / Hazard System ───
+
+/** Black hole pull radius (pixels) */
+export const BLACKHOLE_PULL_RADIUS = 500;
+
+/** Black hole pull speed (pixels per second) */
+export const BLACKHOLE_PULL_SPEED = 200;
+
+/** Quantum drill projectile speed (pixels per second) */
+export const DRILL_SPEED = 600;
+
+/** Quantum drill max duration (seconds) */
+export const DRILL_MAX_DURATION_SEC = 10;
+
+/** EMP relay: staggered kill delay per victim (ms) */
+export const EMP_CHAIN_DELAY_MS = 100;
+
+/** Orbital laser buff duration (seconds) */
+export const ORBITAL_LASER_DURATION_SEC = 10;
+
+/** Orbital laser beam width (pixels) */
+export const ORBITAL_LASER_WIDTH = 100;
+
+/** Cosmic vault roulette multiplier tiers */
+export const VAULT_MULTIPLIERS = [50, 100, 250, 500, 1000] as const;
+
+/** Hazard payout budget range (multiplied by bet) */
+export const HAZARD_BUDGET_MIN = 100;
+export const HAZARD_BUDGET_MAX = 400;

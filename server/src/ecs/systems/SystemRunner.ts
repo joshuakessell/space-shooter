@@ -17,6 +17,9 @@ import {
   WEAPON_COST,
   SPREAD_ANGLE_OFFSET,
   CHAIN_LIGHTNING_MAX_CHAINS,
+  DRILL_SPEED,
+  ORBITAL_LASER_DURATION_SEC,
+  FEATURE_TARGET_TYPES,
 } from '@space-shooter/shared';
 import type { World } from '../World.js';
 import type { FireIntentComponent } from '../components.js';
@@ -25,12 +28,16 @@ import { projectileSystem } from './ProjectileSystem.js';
 import { collisionSystem } from './CollisionSystem.js';
 import type { CollisionEvent } from './CollisionSystem.js';
 import { destroySystem } from './DestroySystem.js';
-import type { ICollisionResolution, ChainHitEvent, AoeDestroyedEvent } from './DestroySystem.js';
+import type { ICollisionResolution, ChainHitEvent, AoeDestroyedEvent, FeatureSpawnEvent } from './DestroySystem.js';
+import { hazardSystem } from './HazardSystem.js';
+import type { HazardEvent } from './HazardSystem.js';
 import { SpawnSystem } from './SpawnSystem.js';
 import { cleanupSystem } from './CleanupSystem.js';
 import type { RtpEngine } from '../../services/RtpEngine.js';
+import type { IRngService } from '../../services/CsprngService.js';
 import type { WalletManager } from '../../services/WalletManager.js';
 import type { RoomEconomyManager } from '../../services/RoomEconomyManager.js';
+import type { IGameBalanceConfig } from '../../config/GameBalanceConfig.js';
 
 /** Result of a single simulation tick */
 export interface TickResult {
@@ -44,6 +51,12 @@ export interface TickResult {
   readonly chainHits: readonly ChainHitEvent[];
   /** AoE blast events for frontend supernova visualization */
   readonly aoeBlasts: readonly AoeDestroyedEvent[];
+  /** Feature target spawn events (hazards / vault) */
+  readonly featureSpawns: readonly FeatureSpawnEvent[];
+  /** Hazard system events (blackhole tick, drill bounce, hazard end) */
+  readonly hazardEvents: readonly HazardEvent[];
+  /** Payouts from hazard kills (separate from RTP payouts) */
+  readonly hazardPayouts: readonly IPayoutEvent[];
 }
 
 export interface NewProjectileInfo {
@@ -83,8 +96,10 @@ export class SystemRunner {
   constructor(
     private readonly world: World,
     private readonly rtpEngine: RtpEngine,
+    private readonly rng: IRngService,
     private readonly wallet: WalletManager,
     private readonly economy: RoomEconomyManager,
+    private readonly config: IGameBalanceConfig,
     spawnSystem: SpawnSystem,
   ) {
     this.spawnSystem = spawnSystem;
@@ -136,13 +151,20 @@ export class SystemRunner {
     const collisions: CollisionEvent[] = collisionSystem(this.world);
 
     // ─── 7. Destroy: 4-layer RTP roll + first-kill mutex + piñata + chain + AoE ───
-    const { payouts, resolutions, chainHits, aoeBlasts } = destroySystem(
+    const { payouts, resolutions, chainHits, aoeBlasts, featureSpawns } = destroySystem(
       this.world,
       collisions,
       this.rtpEngine,
+      this.rng,
       this.wallet,
       this.economy,
     );
+
+    // ─── 7.5. Feature Spawns: Create hazard entities from feature target kills ───
+    this.processFeatureSpawns(featureSpawns);
+
+    // ─── 7.6. Hazard: Process active hazards (blackhole pull, drill move, EMP chain, orbital timer) ───
+    const hazardResult = hazardSystem(this.world, this.wallet, this.economy, this.config);
 
     // ─── 8. Cleanup: Purge destroyed entities ───
     const destroyedIds = cleanupSystem(this.world);
@@ -151,13 +173,16 @@ export class SystemRunner {
     this.world.currentTick++;
 
     return {
-      payouts,
+      payouts: [...payouts, ...hazardResult.payouts],
       destroyedIds,
       newProjectiles,
       rejectedShots,
       collisionResolutions: resolutions,
       chainHits,
       aoeBlasts,
+      featureSpawns,
+      hazardEvents: hazardResult.events,
+      hazardPayouts: hazardResult.payouts,
     };
   }
 
@@ -272,5 +297,95 @@ export class SystemRunner {
       (result as { lockedTargetId?: number }).lockedTargetId = lockedTargetId;
     }
     return result;
+  }
+
+  /**
+   * Process feature spawn events: create hazard entities or handle instant effects.
+   */
+  private processFeatureSpawns(spawns: readonly FeatureSpawnEvent[]): void {
+    for (const spawn of spawns) {
+      if (spawn.hazardType === 'vault') {
+        this.handleVaultSpawn(spawn);
+        continue;
+      }
+      this.createHazardEntity(spawn);
+    }
+  }
+
+  /** Create a hazard entity from a feature spawn event. */
+  private createHazardEntity(spawn: FeatureSpawnEvent): void {
+    const entityId = this.world.createEntity();
+    const pos = this.world.positionPool.acquire();
+    pos.x = spawn.x;
+    pos.y = spawn.y;
+    this.world.positions.set(entityId, pos);
+
+    // Common hazard component
+    this.world.hazards.set(entityId, {
+      ownerSessionId: spawn.playerId,
+      hazardType: spawn.hazardType as import('@space-shooter/shared').HazardType,
+      payoutBudget: spawn.budget,
+      currentPayout: 0,
+      timeAlive: 0,
+      lockedBetAmount: spawn.betAmount,
+      capturedTargetIds: new Set(),
+      pendingVictimIds: [],
+    });
+
+    // Type-specific setup
+    switch (spawn.hazardType) {
+      case 'drill': {
+        const angle = this.rng.randomFloat(0, Math.PI * 2);
+        this.world.velocities.set(entityId, {
+          vx: Math.cos(angle) * DRILL_SPEED,
+          vy: Math.sin(angle) * DRILL_SPEED,
+        });
+        const bound = this.world.boundsPool.acquire();
+        (bound as { radius: number }).radius = 30;
+        this.world.bounds.set(entityId, bound);
+        break;
+      }
+      case 'emp':
+        this.captureAllStandardTargets(entityId);
+        break;
+      case 'orbital_laser':
+        this.world.playerBuffs.set(spawn.playerId, {
+          buff: 'orbital_laser',
+          timeLeft: ORBITAL_LASER_DURATION_SEC,
+          lockedBet: spawn.betAmount,
+        });
+        break;
+      case 'blackhole':
+        break;
+    }
+  }
+
+  /** EMP: capture all standard targets for staggered kills. */
+  private captureAllStandardTargets(hazardEntityId: EntityId): void {
+    const hazard = this.world.hazards.get(hazardEntityId);
+    if (!hazard) return;
+    for (const [targetId, obj] of this.world.spaceObjects) {
+      if (obj.isDead || obj.isCaptured) continue;
+      if (FEATURE_TARGET_TYPES.has(obj.type as import('@space-shooter/shared').SpaceObjectType)) continue;
+      obj.isCaptured = true;
+      hazard.capturedTargetIds.add(targetId);
+      hazard.pendingVictimIds.push(targetId);
+    }
+  }
+
+  /**
+   * Handle Cosmic Vault instant payout — no hazard entity needed.
+   */
+  private handleVaultSpawn(spawn: FeatureSpawnEvent): void {
+    if (!spawn.vaultMultiplier) return;
+    const payout = spawn.betAmount * spawn.vaultMultiplier;
+    this.wallet.awardPayout(spawn.playerId, payout);
+    this.economy.recordPayout(payout);
+
+    this.world.playerBuffs.set(spawn.playerId, {
+      buff: 'paused',
+      timeLeft: 4,
+      lockedBet: spawn.betAmount,
+    });
   }
 }

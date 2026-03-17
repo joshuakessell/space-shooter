@@ -21,6 +21,8 @@ export class PlayerSchema extends Schema {
   @type('number') turretAngle: number = 0; // Aim angle from pointer_move
   @type('boolean') connected: boolean = true; // False during reconnection window
   @type('string') weaponType: string = 'standard'; // WeaponType
+  @type('string') activeBuff: string = 'none'; // BuffType
+  @type('number') buffTimeLeft: number = 0;
 }
 
 /** Space object state synchronized to all clients */
@@ -30,6 +32,7 @@ export class SpaceObjectSchema extends Schema {
   @type('number') y: number = 0;
   @type('string') objectType: string = ''; // SpaceObjectType enum value
   @type('number') multiplier: number = 1;
+  @type('boolean') isCaptured: boolean = false;
 }
 
 /** Root game state containing all entity collections */

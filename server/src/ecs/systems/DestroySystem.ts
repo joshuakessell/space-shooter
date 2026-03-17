@@ -15,13 +15,14 @@
 // trigger secondary AoE (infinite-loop protection).
 // ─────────────────────────────────────────────────────────────
 
-import { SpaceObjectType, CHAIN_LIGHTNING_RADIUS, AOE_BLAST_RADIUS, GAME_WIDTH, GAME_HEIGHT } from '@space-shooter/shared';
-import type { IPayoutEvent, EntityId } from '@space-shooter/shared';
+import { SpaceObjectType, CHAIN_LIGHTNING_RADIUS, AOE_BLAST_RADIUS, GAME_WIDTH, GAME_HEIGHT, HAZARD_BUDGET_MIN, HAZARD_BUDGET_MAX, VAULT_MULTIPLIERS } from '@space-shooter/shared';
+import type { IPayoutEvent, EntityId, HazardType } from '@space-shooter/shared';
 import type { World } from '../World.js';
 import type { CollisionEvent } from './CollisionSystem.js';
 import type { RtpEngine, IHitEvaluation } from '../../services/RtpEngine.js';
 import type { WalletManager } from '../../services/WalletManager.js';
 import type { RoomEconomyManager } from '../../services/RoomEconomyManager.js';
+import type { IRngService } from '../../services/CsprngService.js';
 import { Quadtree } from '../../spatial/Quadtree.js';
 
 /** Extended payout event with audit data */
@@ -59,12 +60,26 @@ export interface AoeDestroyedEvent {
 
 /** Context bundle for AoE resolution (avoids excessive parameter count) */
 interface DestroyContext {
-  readonly world: World;
-  readonly rtpEngine: RtpEngine;
-  readonly wallet: WalletManager;
-  readonly economy: RoomEconomyManager;
-  readonly payouts: IPayoutEvent[];
-  readonly resolutions: ICollisionResolution[];
+  world: World;
+  rtpEngine: RtpEngine;
+  rng: IRngService;
+  wallet: WalletManager;
+  economy: RoomEconomyManager;
+  payouts: IPayoutEvent[];
+  resolutions: ICollisionResolution[];
+}
+
+/** Feature target spawned a hazard (or instant effect) */
+export interface FeatureSpawnEvent {
+  hazardType: HazardType | 'vault';
+  playerId: string;
+  betAmount: number;
+  x: number;
+  y: number;
+  /** CSPRNG-rolled payout budget (×bet). Not used for vault. */
+  budget: number;
+  /** Vault-only: the selected multiplier */
+  vaultMultiplier?: number;
 }
 
 // Reusable quadtree for AoE / chain lightning spatial queries
@@ -90,6 +105,7 @@ export function destroySystem(
   world: World,
   collisions: readonly CollisionEvent[],
   rtpEngine: RtpEngine,
+  rng: IRngService,
   wallet: WalletManager,
   economy: RoomEconomyManager,
 ): {
@@ -97,18 +113,20 @@ export function destroySystem(
   resolutions: ICollisionResolution[];
   chainHits: ChainHitEvent[];
   aoeBlasts: AoeDestroyedEvent[];
+  featureSpawns: FeatureSpawnEvent[];
 } {
   const payouts: IPayoutEvent[] = [];
   const resolutions: ICollisionResolution[] = [];
   const chainHits: ChainHitEvent[] = [];
   const aoeBlasts: AoeDestroyedEvent[] = [];
-  const ctx: DestroyContext = { world, rtpEngine, wallet, economy, payouts, resolutions };
+  const featureSpawns: FeatureSpawnEvent[] = [];
+  const ctx: DestroyContext = { world, rtpEngine, rng, wallet, economy, payouts, resolutions };
 
   for (const collision of collisions) {
-    processCollision(ctx, collision, chainHits, aoeBlasts);
+    processCollision(ctx, collision, chainHits, aoeBlasts, featureSpawns);
   }
 
-  return { payouts, resolutions, chainHits, aoeBlasts };
+  return { payouts, resolutions, chainHits, aoeBlasts, featureSpawns };
 }
 
 /** Process a single collision: RTP roll, piñata, chain lightning, AoE */
@@ -117,6 +135,7 @@ function processCollision(
   collision: CollisionEvent,
   chainHits: ChainHitEvent[],
   aoeBlasts: AoeDestroyedEvent[],
+  featureSpawns: FeatureSpawnEvent[],
 ): void {
   const { world, rtpEngine, wallet, economy, payouts, resolutions } = ctx;
   const { projectileId, objectId, projectileOwnerId, betAmount } = collision;
@@ -125,6 +144,9 @@ function processCollision(
 
   const spaceObj = world.spaceObjects.get(objectId);
   if (!spaceObj) return;
+
+  // Captured targets cannot be hit by bullets
+  if (spaceObj.isCaptured) return;
 
   // First-kill mutex
   if (spaceObj.isDead || world.pendingDestroy.has(objectId)) {
@@ -159,6 +181,11 @@ function processCollision(
       multiplier: hitEval.multiplier, payout: hitEval.payout,
     });
 
+    // Jackpot logging
+    if (hitEval.multiplier >= 100) {
+      wallet.logHighValueWin(projectileOwnerId, hitEval.payout, 'JACKPOT' as any, { objectType: spaceObj.type, multiplier: hitEval.multiplier });
+    }
+
     // Supernova AoE
     if (spaceObj.type === SpaceObjectType.SUPERNOVA_BOMB) {
       const targetPos = world.positions.get(objectId);
@@ -167,6 +194,9 @@ function processCollision(
         if (aoe.totalPayout > 0) aoeBlasts.push(aoe);
       }
     }
+
+    // Feature target → spawn hazard
+    resolveFeatureSpawn(ctx, spaceObj.type, projectileOwnerId, betAmount, objectId, featureSpawns);
   } else {
     spaceObj.absorbedCredits += betAmount;
   }
@@ -347,10 +377,12 @@ function resolveAoEBlast(
     }
   }
 
-  // Award aggregate payout atomically
-  if (totalPayout > 0) {
-    wallet.awardPayout(playerId, totalPayout);
-  }
+    if (totalPayout > 0) {
+      wallet.awardPayout(playerId, totalPayout);
+      if (totalPayout / betAmount >= 100) {
+        wallet.logHighValueWin(playerId, totalPayout, 'JACKPOT' as any, { reason: 'supernova_aoe' });
+      }
+    }
 
   return {
     x: blastX,
@@ -359,4 +391,62 @@ function resolveAoEBlast(
     playerId,
     destroyedTargetIds,
   };
+}
+
+// ─── Feature Target → Hazard Spawn ───
+
+/** Map feature target type to hazard type */
+const FEATURE_TO_HAZARD: Partial<Record<SpaceObjectType, HazardType | 'vault'>> = {
+  [SpaceObjectType.BLACKHOLE_GEN]: 'blackhole',
+  [SpaceObjectType.QUANTUM_DRILL]: 'drill',
+  [SpaceObjectType.EMP_RELAY]: 'emp',
+  [SpaceObjectType.ORBITAL_CORE]: 'orbital_laser',
+  [SpaceObjectType.COSMIC_VAULT]: 'vault',
+};
+
+/** Resolve feature target kill → spawn event */
+function resolveFeatureSpawn(
+  ctx: DestroyContext,
+  objectType: SpaceObjectType,
+  playerId: string,
+  betAmount: number,
+  objectId: EntityId,
+  featureSpawns: FeatureSpawnEvent[],
+): void {
+  const hazardType = FEATURE_TO_HAZARD[objectType];
+  if (!hazardType) return; // Not a feature target
+
+  const pos = ctx.world.positions.get(objectId);
+  if (!pos) return;
+
+  if (hazardType === 'vault') {
+    // Cosmic Vault: weighted CSPRNG selection from fixed multipliers
+    const roll = ctx.rng.randomRange(0, VAULT_MULTIPLIERS.length);
+    const multiplier = VAULT_MULTIPLIERS[roll];
+
+    featureSpawns.push({
+      hazardType: 'vault',
+      playerId,
+      betAmount,
+      x: pos.x,
+      y: pos.y,
+      budget: 0,
+      vaultMultiplier: multiplier,
+    });
+
+    ctx.wallet.logHighValueWin(playerId, betAmount * multiplier, 'FEATURE_WIN' as any, { hazardType: 'vault', multiplier });
+  } else {
+    // Roll payout budget
+    const budgetMultiplier = ctx.rng.randomRange(HAZARD_BUDGET_MIN, HAZARD_BUDGET_MAX + 1);
+    const budget = betAmount * budgetMultiplier;
+
+    featureSpawns.push({
+      hazardType,
+      playerId,
+      betAmount,
+      x: pos.x,
+      y: pos.y,
+      budget,
+    });
+  }
 }

@@ -3,7 +3,7 @@
 // These define the WebSocket message contracts.
 // ─────────────────────────────────────────────────────────────
 
-import type { TurretPosition, SpaceObjectType, IVector2, WeaponType } from './types.js';
+import type { TurretPosition, SpaceObjectType, IVector2, WeaponType, HazardType } from './types.js';
 
 // ─── Client → Server Messages ───
 
@@ -149,6 +149,71 @@ export interface ChainHitMessage {
   readonly payout: number;
 }
 
+// ─── Feature Target Messages ───
+
+/** A feature target was killed, spawning a hazard or instant effect */
+export interface FeatureActivatedMessage {
+  readonly type: 'featureActivated';
+  readonly hazardType: HazardType | 'vault';
+  readonly x: number;
+  readonly y: number;
+  readonly playerId: string;
+  readonly seatIndex: number;
+  readonly budget?: number;
+}
+
+/** Black hole tick: targets being pulled in */
+export interface FeatureBlackholeTickMessage {
+  readonly type: 'featureBlackholeTick';
+  readonly hazardId: string;
+  readonly capturedTargetIds: readonly string[];
+  readonly x: number;
+  readonly y: number;
+}
+
+/** Quantum drill bounced off a wall */
+export interface FeatureDrillBounceMessage {
+  readonly type: 'featureDrillBounce';
+  readonly hazardId: string;
+  readonly x: number;
+  readonly y: number;
+  readonly angle: number;
+}
+
+/** EMP relay chain: instant list of victims */
+export interface FeatureEmpChainMessage {
+  readonly type: 'featureEmpChain';
+  readonly victimIds: readonly string[];
+  readonly sourceX: number;
+  readonly sourceY: number;
+  readonly playerId: string;
+}
+
+/** Orbital laser buff toggled on/off */
+export interface FeatureOrbitalLaserMessage {
+  readonly type: 'featureOrbitalLaser';
+  readonly playerId: string;
+  readonly seatIndex: number;
+  readonly active: boolean;
+  readonly betAmount: number;
+}
+
+/** Cosmic vault roulette result */
+export interface FeatureVaultRouletteMessage {
+  readonly type: 'featureVaultRoulette';
+  readonly playerId: string;
+  readonly multiplier: number;
+  readonly payout: number;
+}
+
+/** A hazard has ended (budget exhausted or timer expired) */
+export interface FeatureEndedMessage {
+  readonly type: 'featureEnded';
+  readonly hazardId: string;
+  readonly totalPayout: number;
+  readonly playerId: string;
+}
+
 /** Union type for all server → client messages */
 export type ServerMessage =
   | ObjectDestroyedMessage
@@ -162,7 +227,14 @@ export type ServerMessage =
   | PlayerJoinedMessage
   | PlayerLeftMessage
   | AoeDestroyedMessage
-  | ChainHitMessage;
+  | ChainHitMessage
+  | FeatureActivatedMessage
+  | FeatureBlackholeTickMessage
+  | FeatureDrillBounceMessage
+  | FeatureEmpChainMessage
+  | FeatureOrbitalLaserMessage
+  | FeatureVaultRouletteMessage
+  | FeatureEndedMessage;
 
 // ─── Message Type Constants ───
 
@@ -172,6 +244,7 @@ export const CLIENT_MESSAGES = {
   SELECT_POSITION: 'selectPosition',
   POINTER_MOVE: 'pointerMove',
   SWITCH_WEAPON: 'switchWeapon',
+  ADMIN_REFILL: 'adminRefill', // Backdoor testing message
 } as const;
 
 export const SERVER_MESSAGES = {
@@ -187,4 +260,11 @@ export const SERVER_MESSAGES = {
   PLAYER_LEFT: 'playerLeft',
   AOE_DESTROYED: 'aoeDestroyed',
   CHAIN_HIT: 'chainHit',
+  FEATURE_ACTIVATED: 'featureActivated',
+  FEATURE_BLACKHOLE_TICK: 'featureBlackholeTick',
+  FEATURE_DRILL_BOUNCE: 'featureDrillBounce',
+  FEATURE_EMP_CHAIN: 'featureEmpChain',
+  FEATURE_ORBITAL_LASER: 'featureOrbitalLaser',
+  FEATURE_VAULT_ROULETTE: 'featureVaultRoulette',
+  FEATURE_ENDED: 'featureEnded',
 } as const;

@@ -573,6 +573,7 @@ describe('DestroySystem (4-Layer)', () => {
       destroyProbability: 0.49,
       absorbedCredits: 999, // High piñata → very likely kill
       isDead: false,
+      isCaptured: false,
     });
 
     // Two projectiles from different players hit same target
@@ -586,7 +587,7 @@ describe('DestroySystem (4-Layer)', () => {
       { projectileId: proj2, objectId: obj, projectileOwnerId: 'p2', betAmount: 10 },
     ];
 
-    const { payouts } = destroySystem(world, collisions, engine, wallet, economy);
+    const { payouts } = destroySystem(world, collisions, engine, rng, wallet, economy);
 
     // At most ONE payout (first-kill wins)
     assert.ok(payouts.length <= 1, `Expected ≤ 1 payload, got ${payouts.length}`);
@@ -616,6 +617,7 @@ describe('DestroySystem (4-Layer)', () => {
       destroyProbability: 0.0098,
       absorbedCredits: 0,
       isDead: false,
+      isCaptured: false,
     });
 
     const proj = world.createEntity();
@@ -625,7 +627,7 @@ describe('DestroySystem (4-Layer)', () => {
       { projectileId: proj, objectId: obj, projectileOwnerId: 'p1', betAmount: 50 },
     ];
 
-    const { payouts } = destroySystem(world, collisions, engine, wallet, economy);
+    const { payouts } = destroySystem(world, collisions, engine, rng, wallet, economy);
 
     const spaceObj = world.spaceObjects.get(obj)!;
     if (payouts.length === 0) {
@@ -649,7 +651,7 @@ describe('DestroySystem (4-Layer)', () => {
     world.spaceObjects.set(obj, {
       type: SpaceObjectType.ASTEROID,
       multiplier: 2, destroyProbability: 0.49,
-      absorbedCredits: 0, isDead: false,
+      absorbedCredits: 0, isDead: false, isCaptured: false,
     });
 
     const proj = world.createEntity();
@@ -659,7 +661,7 @@ describe('DestroySystem (4-Layer)', () => {
       { projectileId: proj, objectId: obj, projectileOwnerId: 'p1', betAmount: 5 },
     ];
 
-    const { resolutions } = destroySystem(world, collisions, engine, wallet, economy);
+    const { resolutions } = destroySystem(world, collisions, engine, rng, wallet, economy);
 
     assert.strictEqual(resolutions.length, 1);
     assert.strictEqual(resolutions[0].playerId, 'p1');
@@ -682,7 +684,7 @@ describe('CollisionSystem', () => {
     world.spaceObjects.set(obj, {
       type: SpaceObjectType.ASTEROID,
       multiplier: 2, destroyProbability: 0.49,
-      absorbedCredits: 0, isDead: false,
+      absorbedCredits: 0, isDead: false, isCaptured: false,
     });
     world.bounds.set(obj, { radius: 40 });
 
@@ -703,7 +705,7 @@ describe('CollisionSystem', () => {
     world.spaceObjects.set(obj, {
       type: SpaceObjectType.ROCKET,
       multiplier: 3, destroyProbability: 0.3267,
-      absorbedCredits: 0, isDead: false,
+      absorbedCredits: 0, isDead: false, isCaptured: false,
     });
     world.bounds.set(obj, { radius: 30 });
 
@@ -777,7 +779,7 @@ describe('SystemRunner (with Economy)', () => {
     const engine = new RtpEngine(rng, economy, GAME_BALANCE_CONFIG);
     engine.addPlayer('p1');
     const spawnSystem = new SpawnSystem(rng, GAME_BALANCE_CONFIG);
-    const runner = new SystemRunner(world, engine, wallet, economy, spawnSystem);
+    const runner = new SystemRunner(world, engine, rng, wallet, economy, GAME_BALANCE_CONFIG, spawnSystem);
 
     // Queue a fire intent (bet must be a valid tier)
     const intentId = world.createEntity();

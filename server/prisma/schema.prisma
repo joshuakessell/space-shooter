@@ -1,0 +1,44 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String     @id @default(uuid())
+  username  String?
+  token     String     @unique
+  balance   Float      @default(1000)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  auditLogs AuditLog[]
+}
+
+enum AuditAction {
+  BET_BATCH
+  WIN_BATCH
+  JACKPOT
+  FEATURE_WIN
+}
+
+model AuditLog {
+  id               String      @id @default(uuid())
+  userId           String
+  user             User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action           AuditAction
+  amount           Float
+  resultingBalance Float
+  details          Json?
+  timestamp        DateTime    @default(now())
+
+  @@index([userId, timestamp])
+}
+

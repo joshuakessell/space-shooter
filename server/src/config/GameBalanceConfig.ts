@@ -183,5 +183,35 @@ export const GAME_BALANCE_CONFIG: IGameBalanceConfig = {
       collisionRadius: 45,
       spawnWeight: 1,
     },
+    [SpaceObjectType.BLACKHOLE_GEN]: {
+      multiplier: 25,
+      destroyProbability: 0.0392,
+      collisionRadius: 55,
+      spawnWeight: 0.4,
+    },
+    [SpaceObjectType.QUANTUM_DRILL]: {
+      multiplier: 20,
+      destroyProbability: 0.049,
+      collisionRadius: 40,
+      spawnWeight: 0.5,
+    },
+    [SpaceObjectType.EMP_RELAY]: {
+      multiplier: 15,
+      destroyProbability: 0.0653,
+      collisionRadius: 50,
+      spawnWeight: 0.5,
+    },
+    [SpaceObjectType.ORBITAL_CORE]: {
+      multiplier: 30,
+      destroyProbability: 0.0327,
+      collisionRadius: 60,
+      spawnWeight: 0.3,
+    },
+    [SpaceObjectType.COSMIC_VAULT]: {
+      multiplier: 20,
+      destroyProbability: 0.049,
+      collisionRadius: 55,
+      spawnWeight: 0.3,
+    },
   },
 };

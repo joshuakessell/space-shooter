@@ -38,6 +38,12 @@ const OBJECT_COLORS: Record<string, string> = {
   [SpaceObjectType.NEBULA_BEAST]:   '#9370DB',
   [SpaceObjectType.COSMIC_WHALE]:   '#00CED1',
   [SpaceObjectType.SUPERNOVA_BOMB]: '#FF00FF',
+  // Feature targets
+  [SpaceObjectType.BLACKHOLE_GEN]:  '#1A0033',
+  [SpaceObjectType.QUANTUM_DRILL]:  '#FF3300',
+  [SpaceObjectType.EMP_RELAY]:      '#00CCFF',
+  [SpaceObjectType.ORBITAL_CORE]:   '#FFAA00',
+  [SpaceObjectType.COSMIC_VAULT]:   '#FFD700',
 };
 
 /** Object radius for rendering */
@@ -51,6 +57,11 @@ const OBJECT_RENDER_RADII: Record<string, number> = {
   [SpaceObjectType.NEBULA_BEAST]:   24,
   [SpaceObjectType.COSMIC_WHALE]:   22,
   [SpaceObjectType.SUPERNOVA_BOMB]: 48,
+  [SpaceObjectType.BLACKHOLE_GEN]:  55,
+  [SpaceObjectType.QUANTUM_DRILL]:  40,
+  [SpaceObjectType.EMP_RELAY]:      50,
+  [SpaceObjectType.ORBITAL_CORE]:   60,
+  [SpaceObjectType.COSMIC_VAULT]:   55,
 };
 
 /** Short display names (emoji) */
@@ -64,6 +75,11 @@ const OBJECT_NAMES: Record<string, string> = {
   [SpaceObjectType.NEBULA_BEAST]:   '🐙',
   [SpaceObjectType.COSMIC_WHALE]:   '🐋',
   [SpaceObjectType.SUPERNOVA_BOMB]: '💥',
+  [SpaceObjectType.BLACKHOLE_GEN]:  '🕳️',
+  [SpaceObjectType.QUANTUM_DRILL]:  '⚡',
+  [SpaceObjectType.EMP_RELAY]:      '📡',
+  [SpaceObjectType.ORBITAL_CORE]:   '☀️',
+  [SpaceObjectType.COSMIC_VAULT]:   '🏆',
 };
 
 /** Payout notification */

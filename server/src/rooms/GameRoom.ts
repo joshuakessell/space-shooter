@@ -39,6 +39,8 @@ import { RtpEngine } from '../services/RtpEngine.js';
 import { WalletManager } from '../services/WalletManager.js';
 import { RoomEconomyManager } from '../services/RoomEconomyManager.js';
 import { GAME_BALANCE_CONFIG } from '../config/GameBalanceConfig.js';
+import { prisma } from '../services/prisma.js';
+import { randomUUID } from 'node:crypto';
 
 /**
  * Seat management: 6 fixed seats indexed 0–5.
@@ -84,6 +86,13 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
     [CLIENT_MESSAGES.FIRE_WEAPON]: (client: Client, message: FireWeaponMessage) => {
       this.handleFireWeapon(client, message);
     },
+    [CLIENT_MESSAGES.ADMIN_REFILL]: (client: Client, message: { amount: number }) => {
+      // Testing backdoor: if a player runs out of money during load test, refill them
+      if (typeof message.amount === 'number' && message.amount > 0) {
+        this.wallet.awardPayout(client.sessionId, message.amount);
+        console.log(`[GameRoom] Admin refill granted to ${client.auth?.username || client.sessionId} for ${message.amount} credits`);
+      }
+    },
     [CLIENT_MESSAGES.CHANGE_BET]: (client: Client, message: ChangeBetMessage) => {
       this.handleChangeBet(client, message);
     },
@@ -112,8 +121,10 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
     this.systemRunner = new SystemRunner(
       this.world,
       this.rtpEngine,
+      this.rng,
       this.wallet,
       this.economy,
+      GAME_BALANCE_CONFIG,
       spawnSystem,
     );
 
@@ -122,10 +133,52 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
       this.simulateTick();
     }, FIXED_TIMESTEP_MS);
 
+    // 5000ms batch DB sync timer
+    setInterval(async () => {
+      try {
+        await this.wallet.syncToDatabase();
+      } catch (err) {
+        console.error('[GameRoom] Database Batch Sync Error:', err);
+      }
+    }, 5000);
+
     console.log(`[GameRoom] Room ${this.roomId} created. Tick rate: ${1000 / FIXED_TIMESTEP_MS} Hz`);
     console.log(`[GameRoom] RTP target: ${GAME_BALANCE_CONFIG.targetRtp * 100}%`);
     console.log(`[GameRoom] Security: fire rate=${GAME_BALANCE_CONFIG.security.maxFireRateMs}ms, auto-ban=${GAME_BALANCE_CONFIG.security.rateLimitViolationThreshold} violations/${GAME_BALANCE_CONFIG.security.rateLimitWindowMs}ms`);
     console.log(`[GameRoom] Max success threshold: ${GAME_BALANCE_CONFIG.maxSuccessThreshold * 100}%`);
+  }
+
+  async onAuth(client: Client, options: { token?: string }): Promise<any> {
+    let user;
+    const token = options.token;
+
+    if (token) {
+      user = await prisma.user.findUnique({ where: { token } });
+    }
+
+    if (!user) {
+      // Create guest account
+      const newToken = randomUUID();
+      user = await prisma.user.create({
+        data: {
+          username: `Guest-${Math.floor(Math.random() * 10000)}`,
+          token: newToken,
+          balance: STARTING_CREDITS,
+        }
+      });
+      console.log(`[GameRoom] Created new guest user ${user.id} with token ${user.token}`);
+      // Usually, in a real REST API, the client fetches the token first, but Colyseus
+      // offers a way to send it via a custom message post-join if needed.
+    }
+
+    // Session Lock: prevent double-spending exploit via multiple tabs
+    const isAlreadyConnected = this.clients.some(c => c.auth?.id === user.id);
+    if (isAlreadyConnected) {
+      console.warn(`[GameRoom] Session lock denied for user ${user.id}`);
+      throw new Error('User already connected to this room.');
+    }
+
+    return user;
   }
 
   onJoin(client: Client, _options: Record<string, unknown>): void {
@@ -142,8 +195,11 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
     // Get turret coordinates from seat
     const coords = SEAT_COORDINATES[seatIndex];
 
-    // Initialize wallet
-    this.wallet.initPlayer(client.sessionId, STARTING_CREDITS);
+    const user = client.auth;
+    const initialCredits = user ? Number(user.balance) : STARTING_CREDITS;
+
+    // Initialize wallet with DB balance
+    this.wallet.initPlayer(client.sessionId, initialCredits);
 
     // Register player in RTP engine (pity timer tracking)
     this.rtpEngine.addPlayer(client.sessionId);
@@ -162,7 +218,7 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
     playerSchema.position = this.seatIndexToPosition(seatIndex);
     playerSchema.seatIndex = seatIndex;
     playerSchema.betAmount = DEFAULT_BET;
-    playerSchema.credits = STARTING_CREDITS;
+    playerSchema.credits = initialCredits;
     playerSchema.turretX = coords.x;
     playerSchema.turretY = coords.y;
     this.state.players.set(client.sessionId, playerSchema);
@@ -242,6 +298,11 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
     // player continue to simulate and resolve. Payouts credit
     // their server-side wallet even while offline.
     // The wallet survives until the player's seat reservation expires.
+
+    // Force an immediate DB sync for the departing player (fire-and-forget)
+    this.wallet.syncToDatabase(sessionId).catch(err => {
+      console.error(`[GameRoom] Failed to sync wallet on disconnect for ${sessionId}:`, err);
+    });
 
     if (seatIndex >= 0) this.seats[seatIndex] = null;
     this.playerBets.delete(sessionId);
@@ -388,6 +449,8 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
   // ─── Simulation ───
 
   private simulateTick(): void {
+    const startTime = performance.now();
+
     // Gather active player session IDs for hot-seat rotation
     const activePlayers = this.seats.filter((s): s is string => s !== null);
 
@@ -412,12 +475,16 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
       schema.y = Math.round(pos.y * 10) / 10;
       schema.objectType = obj.type;
       schema.multiplier = obj.multiplier;
+      schema.isCaptured = obj.isCaptured;
       this.state.spaceObjects.set(String(entityId), schema);
     }
 
     // Update player credits
     for (const [playerId, player] of this.state.players) {
       player.credits = this.wallet.getBalance(playerId);
+      const buff = this.world.playerBuffs.get(playerId);
+      player.activeBuff = buff?.buff ?? 'none';
+      player.buffTimeLeft = buff?.timeLeft ?? 0;
     }
 
     // Update tick counter
@@ -493,6 +560,75 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
         seatIndex,
         destroyedTargetIds: aoe.destroyedTargetIds.map(String),
       });
+    }
+
+    // Feature target spawn events
+    for (const spawn of result.featureSpawns) {
+      const seatIndex = this.seats.indexOf(spawn.playerId);
+      this.broadcast(SERVER_MESSAGES.FEATURE_ACTIVATED, {
+        type: SERVER_MESSAGES.FEATURE_ACTIVATED,
+        hazardType: spawn.hazardType,
+        x: spawn.x,
+        y: spawn.y,
+        playerId: spawn.playerId,
+        seatIndex,
+        budget: spawn.budget,
+      });
+
+      // Vault-specific roulette message
+      if (spawn.hazardType === 'vault' && spawn.vaultMultiplier) {
+        const payout = spawn.betAmount * spawn.vaultMultiplier;
+        this.broadcast(SERVER_MESSAGES.FEATURE_VAULT_ROULETTE, {
+          type: SERVER_MESSAGES.FEATURE_VAULT_ROULETTE,
+          playerId: spawn.playerId,
+          multiplier: spawn.vaultMultiplier,
+          payout,
+        });
+      }
+
+      // EMP-specific chain message
+      if (spawn.hazardType === 'emp') {
+        const capturedIds: string[] = [];
+        for (const [eid, obj] of this.world.spaceObjects) {
+          if (obj.isCaptured) capturedIds.push(String(eid));
+        }
+        this.broadcast(SERVER_MESSAGES.FEATURE_EMP_CHAIN, {
+          type: SERVER_MESSAGES.FEATURE_EMP_CHAIN,
+          victimIds: capturedIds,
+          sourceX: spawn.x,
+          sourceY: spawn.y,
+          playerId: spawn.playerId,
+        });
+      }
+
+      // Orbital laser buff message
+      if (spawn.hazardType === 'orbital_laser') {
+        this.broadcast(SERVER_MESSAGES.FEATURE_ORBITAL_LASER, {
+          type: SERVER_MESSAGES.FEATURE_ORBITAL_LASER,
+          playerId: spawn.playerId,
+          seatIndex,
+          active: true,
+          betAmount: spawn.betAmount,
+        });
+      }
+    }
+
+    // Hazard system events
+    for (const evt of result.hazardEvents) {
+      if (evt.type === 'hazardEnd') {
+        const endEvt = evt as import('../ecs/systems/HazardSystem.js').HazardEndEvent;
+        this.broadcast(SERVER_MESSAGES.FEATURE_ENDED, {
+          type: SERVER_MESSAGES.FEATURE_ENDED,
+          hazardId: String(endEvt.hazardId),
+          totalPayout: endEvt.totalPayout,
+          playerId: endEvt.ownerSessionId,
+        });
+      }
+    }
+
+    const elapsed = performance.now() - startTime;
+    if (elapsed > FIXED_TIMESTEP_MS) {
+      console.warn(`[WARN] SERVER LAG DETECTED: Tick took ${elapsed.toFixed(2)} ms (Limit: ${FIXED_TIMESTEP_MS}ms)`);
     }
   }
 

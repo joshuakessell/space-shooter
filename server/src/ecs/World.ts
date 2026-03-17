@@ -14,6 +14,8 @@ import type {
   PendingDestroyComponent,
   FireIntentComponent,
   PathComponent,
+  HazardComponent,
+  PlayerBuffState,
   ComponentStore,
 } from './components.js';
 import { ObjectPool } from '../pool/ObjectPool.js';
@@ -38,6 +40,10 @@ export class World {
   public readonly pendingDestroy: ComponentStore<PendingDestroyComponent> = new Map();
   public readonly fireIntents: ComponentStore<FireIntentComponent> = new Map();
   public readonly paths: ComponentStore<PathComponent> = new Map();
+  public readonly hazards: ComponentStore<HazardComponent> = new Map();
+
+  /** Per-player buff state (orbital laser, vault pause) */
+  public readonly playerBuffs: Map<string, PlayerBuffState> = new Map();
 
   /** Current simulation tick */
   public currentTick = 0;
@@ -63,10 +69,10 @@ export class World {
   );
 
   public readonly spaceObjectPool = new ObjectPool<SpaceObjectComponent>(
-    () => ({ type: '' as SpaceObjectComponent['type'], multiplier: 1, destroyProbability: 0, absorbedCredits: 0, isDead: false }),
+    () => ({ type: '' as SpaceObjectComponent['type'], multiplier: 1, destroyProbability: 0, absorbedCredits: 0, isDead: false, isCaptured: false }),
     (s) => {
-      const m = s as { type: string; multiplier: number; destroyProbability: number; absorbedCredits: number; isDead: boolean };
-      m.type = ''; m.multiplier = 1; m.destroyProbability = 0; m.absorbedCredits = 0; m.isDead = false;
+      const m = s as { type: string; multiplier: number; destroyProbability: number; absorbedCredits: number; isDead: boolean; isCaptured: boolean };
+      m.type = ''; m.multiplier = 1; m.destroyProbability = 0; m.absorbedCredits = 0; m.isDead = false; m.isCaptured = false;
     },
     50,
   );
@@ -124,6 +130,7 @@ export class World {
     this.pendingDestroy.delete(id);
     this.fireIntents.delete(id);
     this.paths.delete(id);
+    this.hazards.delete(id);
     this.activeEntities.delete(id);
     this.recycledIds.push(id);
   }
@@ -162,6 +169,8 @@ export class World {
     this.pendingDestroy.clear();
     this.fireIntents.clear();
     this.paths.clear();
+    this.hazards.clear();
+    this.playerBuffs.clear();
     this.activeEntities.clear();
     this.recycledIds.length = 0;
     this.nextEntityId = 1;

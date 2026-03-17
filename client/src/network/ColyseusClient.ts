@@ -25,6 +25,8 @@ export interface SyncedPlayerState {
   turretY: number;
   turretAngle: number;
   weaponType: string;
+  activeBuff: string;
+  buffTimeLeft: number;
 }
 
 export interface SyncedSpaceObjectState {
@@ -33,6 +35,7 @@ export interface SyncedSpaceObjectState {
   y: number;
   objectType: string;
   multiplier: number;
+  isCaptured: boolean;
 }
 
 /** Payout event from server broadcast */
@@ -67,6 +70,57 @@ export interface ChainHitEventData {
   payout: number;
 }
 
+// ─── Feature Event Data Types ───
+
+export interface FeatureActivatedEventData {
+  hazardType: string;
+  x: number;
+  y: number;
+  playerId: string;
+  seatIndex: number;
+  budget?: number;
+}
+
+export interface FeatureBlackholeTickData {
+  hazardId: string;
+  capturedTargetIds: string[];
+  x: number;
+  y: number;
+}
+
+export interface FeatureDrillBounceData {
+  hazardId: string;
+  x: number;
+  y: number;
+  angle: number;
+}
+
+export interface FeatureEndedData {
+  hazardId: string;
+  totalPayout: number;
+  playerId: string;
+}
+
+export interface FeatureVaultRouletteData {
+  playerId: string;
+  multiplier: number;
+  payout: number;
+}
+
+export interface FeatureEmpChainData {
+  victimIds: string[];
+  sourceX: number;
+  sourceY: number;
+  playerId: string;
+}
+
+export interface FeatureOrbitalLaserData {
+  playerId: string;
+  seatIndex: number;
+  active: boolean;
+  betAmount: number;
+}
+
 /** Event callbacks */
 export interface GameClientCallbacks {
   onStateChange: (state: GameRoomStateSnapshot) => void;
@@ -78,6 +132,13 @@ export interface GameClientCallbacks {
   onError: (error: Error) => void;
   onAoeDestroyed?: (event: AoeEventData) => void;
   onChainHit?: (event: ChainHitEventData) => void;
+  onFeatureActivated?: (event: FeatureActivatedEventData) => void;
+  onFeatureBlackholeTick?: (event: FeatureBlackholeTickData) => void;
+  onFeatureDrillBounce?: (event: FeatureDrillBounceData) => void;
+  onFeatureEnded?: (event: FeatureEndedData) => void;
+  onFeatureVaultRoulette?: (event: FeatureVaultRouletteData) => void;
+  onFeatureEmpChain?: (event: FeatureEmpChainData) => void;
+  onFeatureOrbitalLaser?: (event: FeatureOrbitalLaserData) => void;
 }
 
 export interface GameRoomStateSnapshot {
@@ -143,6 +204,29 @@ export class GameClient {
       // Listen for chain hit events
       this.room.onMessage(SERVER_MESSAGES.CHAIN_HIT, (data: ChainHitEventData) => {
         this.callbacks.onChainHit?.(data);
+      });
+
+      // Feature target events
+      this.room.onMessage(SERVER_MESSAGES.FEATURE_ACTIVATED, (data: FeatureActivatedEventData) => {
+        this.callbacks.onFeatureActivated?.(data);
+      });
+      this.room.onMessage(SERVER_MESSAGES.FEATURE_BLACKHOLE_TICK, (data: FeatureBlackholeTickData) => {
+        this.callbacks.onFeatureBlackholeTick?.(data);
+      });
+      this.room.onMessage(SERVER_MESSAGES.FEATURE_DRILL_BOUNCE, (data: FeatureDrillBounceData) => {
+        this.callbacks.onFeatureDrillBounce?.(data);
+      });
+      this.room.onMessage(SERVER_MESSAGES.FEATURE_ENDED, (data: FeatureEndedData) => {
+        this.callbacks.onFeatureEnded?.(data);
+      });
+      this.room.onMessage(SERVER_MESSAGES.FEATURE_VAULT_ROULETTE, (data: FeatureVaultRouletteData) => {
+        this.callbacks.onFeatureVaultRoulette?.(data);
+      });
+      this.room.onMessage(SERVER_MESSAGES.FEATURE_EMP_CHAIN, (data: FeatureEmpChainData) => {
+        this.callbacks.onFeatureEmpChain?.(data);
+      });
+      this.room.onMessage(SERVER_MESSAGES.FEATURE_ORBITAL_LASER, (data: FeatureOrbitalLaserData) => {
+        this.callbacks.onFeatureOrbitalLaser?.(data);
       });
 
     } catch (err) {
@@ -217,6 +301,8 @@ export class GameClient {
           turretY: Number(p['turretY'] ?? 0),
           turretAngle: Number(p['turretAngle'] ?? 0),
           weaponType: typeof p['weaponType'] === 'string' ? p['weaponType'] : 'standard',
+          activeBuff: typeof p['activeBuff'] === 'string' ? p['activeBuff'] : 'none',
+          buffTimeLeft: Number(p['buffTimeLeft'] ?? 0),
         });
       });
     }
@@ -230,6 +316,7 @@ export class GameClient {
           y: Number(o['y'] ?? 0),
           objectType: typeof o['objectType'] === 'string' ? o['objectType'] : '',
           multiplier: Number(o['multiplier'] ?? 1),
+          isCaptured: Boolean(o['isCaptured'] ?? false),
         });
       });
     }

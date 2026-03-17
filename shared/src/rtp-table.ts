@@ -59,6 +59,32 @@ export const RTP_TABLE: ReadonlyMap<SpaceObjectType, IRtpEntry> = new Map([
     multiplier: 100,
     destroyProbability: 0.0098,    // 0.98% → 100×0.0098 = 0.98
   }],
+  // Feature targets (trigger hazard or buff on kill)
+  [SpaceObjectType.BLACKHOLE_GEN, {
+    type: SpaceObjectType.BLACKHOLE_GEN,
+    multiplier: 25,
+    destroyProbability: 0.0392,    // 3.92% → 25×0.0392 = 0.98
+  }],
+  [SpaceObjectType.QUANTUM_DRILL, {
+    type: SpaceObjectType.QUANTUM_DRILL,
+    multiplier: 20,
+    destroyProbability: 0.049,     // 4.9% → 20×0.049 = 0.98
+  }],
+  [SpaceObjectType.EMP_RELAY, {
+    type: SpaceObjectType.EMP_RELAY,
+    multiplier: 15,
+    destroyProbability: 0.0653,    // 6.53% → 15×0.0653 = 0.98
+  }],
+  [SpaceObjectType.ORBITAL_CORE, {
+    type: SpaceObjectType.ORBITAL_CORE,
+    multiplier: 30,
+    destroyProbability: 0.0327,    // 3.27% → 30×0.0327 = 0.98
+  }],
+  [SpaceObjectType.COSMIC_VAULT, {
+    type: SpaceObjectType.COSMIC_VAULT,
+    multiplier: 20,
+    destroyProbability: 0.049,     // 4.9% → 20×0.049 = 0.98
+  }],
   [SpaceObjectType.SUPERNOVA_BOMB, {
     type: SpaceObjectType.SUPERNOVA_BOMB,
     multiplier: 20,
@@ -80,6 +106,11 @@ export const OBJECT_RADII: ReadonlyMap<SpaceObjectType, number> = new Map([
   [SpaceObjectType.NEBULA_BEAST,   24],
   [SpaceObjectType.COSMIC_WHALE,   22],
   [SpaceObjectType.SUPERNOVA_BOMB,  45],
+  [SpaceObjectType.BLACKHOLE_GEN,   55],
+  [SpaceObjectType.QUANTUM_DRILL,   40],
+  [SpaceObjectType.EMP_RELAY,       50],
+  [SpaceObjectType.ORBITAL_CORE,    60],
+  [SpaceObjectType.COSMIC_VAULT,    55],
 ]);
 
 /**
@@ -97,4 +128,9 @@ export const SPAWN_WEIGHTS: ReadonlyMap<SpaceObjectType, number> = new Map([
   [SpaceObjectType.NEBULA_BEAST,   2.5],
   [SpaceObjectType.COSMIC_WHALE,   1.5],
   [SpaceObjectType.SUPERNOVA_BOMB,  1],
+  [SpaceObjectType.BLACKHOLE_GEN,   0.4],
+  [SpaceObjectType.QUANTUM_DRILL,   0.5],
+  [SpaceObjectType.EMP_RELAY,       0.5],
+  [SpaceObjectType.ORBITAL_CORE,    0.3],
+  [SpaceObjectType.COSMIC_VAULT,    0.3],
 ]);

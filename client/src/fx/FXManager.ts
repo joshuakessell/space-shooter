@@ -275,4 +275,94 @@ export class FXManager {
     }
     ctx.globalAlpha = 1;
   }
+
+  // ─── Feature Target FX ───
+
+  /** Black hole vortex — swirling purple particles */
+  playBlackholeVortex(x: number, y: number): void {
+    const count = 30;
+    for (let i = 0; i < count; i++) {
+      const p = this.acquire();
+      if (!p) break;
+      const angle = (i / count) * Math.PI * 2;
+      const radius = 20 + Math.random() * 60;
+      p.x = x + Math.cos(angle) * radius;
+      p.y = y + Math.sin(angle) * radius;
+      // Spiral inward
+      p.vx = Math.cos(angle + Math.PI / 2) * 80 - Math.cos(angle) * 40;
+      p.vy = Math.sin(angle + Math.PI / 2) * 80 - Math.sin(angle) * 40;
+      p.life = 1 + Math.random() * 0.5;
+      p.maxLife = p.life;
+      p.size = 3 + Math.random() * 4;
+      p.color = i % 2 === 0 ? '#6600CC' : '#9933FF';
+      p.type = 'explosion';
+      p.gravity = 0;
+    }
+  }
+
+  /** Quantum drill trail — orange speed particles */
+  playDrillTrail(x: number, y: number, angle: number): void {
+    const count = 8;
+    for (let i = 0; i < count; i++) {
+      const p = this.acquire();
+      if (!p) break;
+      const spread = (Math.random() - 0.5) * 0.8;
+      const trailAngle = angle + Math.PI + spread;
+      const speed = 60 + Math.random() * 100;
+      p.x = x;
+      p.y = y;
+      p.vx = Math.cos(trailAngle) * speed;
+      p.vy = Math.sin(trailAngle) * speed;
+      p.life = 0.3 + Math.random() * 0.4;
+      p.maxLife = p.life;
+      p.size = 3 + Math.random() * 3;
+      p.color = i % 2 === 0 ? '#FF3300' : '#FF6600';
+      p.type = 'spark';
+      p.gravity = 0;
+    }
+  }
+
+  /** EMP chain — cyan bolt between two points */
+  playEmpChain(fromX: number, fromY: number, toX: number, toY: number): void {
+    const count = 12;
+    for (let i = 0; i < count; i++) {
+      const p = this.acquire();
+      if (!p) break;
+      const t = i / count;
+      p.x = fromX + (toX - fromX) * t + (Math.random() - 0.5) * 20;
+      p.y = fromY + (toY - fromY) * t + (Math.random() - 0.5) * 20;
+      p.vx = (Math.random() - 0.5) * 40;
+      p.vy = (Math.random() - 0.5) * 40;
+      p.life = 0.3 + Math.random() * 0.3;
+      p.maxLife = p.life;
+      p.size = 2 + Math.random() * 3;
+      p.color = i % 3 === 0 ? '#FFFFFF' : '#00CCFF';
+      p.type = 'spark';
+      p.gravity = 0;
+    }
+  }
+
+  /** Cosmic vault roulette — gold coin explosion */
+  playVaultRoulette(x: number, y: number): void {
+    const count = 40;
+    for (let i = 0; i < count; i++) {
+      const p = this.acquire();
+      if (!p) break;
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 100 + Math.random() * 200;
+      p.x = x;
+      p.y = y;
+      p.vx = Math.cos(angle) * speed;
+      p.vy = Math.sin(angle) * speed;
+      p.life = 1 + Math.random() * 1;
+      p.maxLife = p.life;
+      p.size = 4 + Math.random() * 6;
+      let coinColor = '#FFD700';
+      if (i % 3 === 1) coinColor = '#FFA500';
+      else if (i % 3 === 2) coinColor = '#FFFFFF';
+      p.color = coinColor;
+      p.type = 'explosion';
+      p.gravity = 50;
+    }
+  }
 }

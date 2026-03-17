@@ -3,7 +3,7 @@
 // Per Phaser 4 skill contract: no Phaser imports, no methods.
 // ─────────────────────────────────────────────────────────────
 
-import type { SpaceObjectType, TurretPosition, EntityId, IVector2, WeaponType } from '@space-shooter/shared';
+import type { SpaceObjectType, TurretPosition, EntityId, IVector2, WeaponType, HazardType, BuffType } from '@space-shooter/shared';
 
 /** 2D position in the game world */
 export interface PositionComponent {
@@ -64,6 +64,11 @@ export interface SpaceObjectComponent {
    * Separate from PendingDestroy (which is deferred cleanup).
    */
   isDead: boolean;
+  /**
+   * When true, bullets cannot interact with this target.
+   * Set by Black Hole / EMP hazards to prevent kill-stealing.
+   */
+  isCaptured: boolean;
 }
 
 /** Projectile (laser) data */
@@ -117,3 +122,32 @@ export interface FireIntentComponent {
 
 /** A component store is a Map from EntityId to component data */
 export type ComponentStore<T> = Map<EntityId, T>;
+
+// ─── Hazard System Components (Server-Only) ───
+
+/** Hazard entity spawned when a feature target is killed */
+export interface HazardComponent {
+  /** Player who killed the feature target */
+  readonly ownerSessionId: string;
+  /** Type of hazard behavior */
+  readonly hazardType: HazardType;
+  /** Total payout budget (CSPRNG-rolled on spawn) */
+  readonly payoutBudget: number;
+  /** Running payout total — self-destructs when >= payoutBudget */
+  currentPayout: number;
+  /** Seconds alive (for timer-based hazards like drill) */
+  timeAlive: number;
+  /** Bet amount locked at spawning time (used for payout calculations) */
+  readonly lockedBetAmount: number;
+  /** Set of target entity IDs currently captured by this hazard */
+  readonly capturedTargetIds: Set<EntityId>;
+  /** EMP: pending victim IDs to kill one per tick */
+  readonly pendingVictimIds: EntityId[];
+}
+
+/** Player buff state (server-side per-player) */
+export interface PlayerBuffState {
+  buff: BuffType;
+  timeLeft: number;
+  lockedBet: number;
+}

@@ -9,7 +9,11 @@
 import { BET_TIERS, GAME_WIDTH, GAME_HEIGHT, SEAT_COORDINATES, SEAT_COLORS, SPREAD_ANGLE_OFFSET } from '@space-shooter/shared';
 import type { WeaponType } from '@space-shooter/shared';
 import { GameClient } from './network/ColyseusClient.js';
-import type { GameRoomStateSnapshot, PayoutEventData, AoeEventData, ChainHitEventData } from './network/ColyseusClient.js';
+import type {
+  GameRoomStateSnapshot, PayoutEventData, AoeEventData, ChainHitEventData,
+  FeatureActivatedEventData, FeatureVaultRouletteData, FeatureEmpChainData,
+  FeatureDrillBounceData, FeatureEndedData,
+} from './network/ColyseusClient.js';
 import { GameRenderer } from './rendering/GameRenderer.js';
 import { InputHandler } from './input/InputHandler.js';
 import { HUDManager } from './ui/HUDManager.js';
@@ -177,10 +181,64 @@ async function boot(): Promise<void> {
       }
     },
     onChainHit: (event: ChainHitEventData) => {
-      // Render lightning trail between chain hit positions
       renderer.addLightningTrail(event.fromX, event.fromY, event.toX, event.toY, event.seatIndex);
       fxManager.playImpactSpark(event.toX, event.toY, '#00CCFF');
-      audio.playShoot(); // Quick zap sound
+      audio.playShoot();
+    },
+
+    // ─── Feature Target Event Handlers ───
+
+    onFeatureActivated: (event: FeatureActivatedEventData) => {
+      console.log(`[SpaceShooter] 🎯 Feature target activated: ${event.hazardType} by player ${event.playerId}`);
+      switch (event.hazardType) {
+        case 'blackhole':
+          fxManager.playBlackholeVortex(event.x, event.y);
+          renderer.applyShakeForMultiplier(30);
+          break;
+        case 'drill':
+          fxManager.playDrillTrail(event.x, event.y, 0);
+          renderer.applyShakeForMultiplier(20);
+          break;
+        case 'emp':
+          renderer.applyShakeForMultiplier(40);
+          break;
+        case 'orbital_laser':
+          renderer.applyShakeForMultiplier(25);
+          break;
+        case 'vault':
+          fxManager.playVaultRoulette(event.x, event.y);
+          renderer.applyShakeForMultiplier(35);
+          break;
+      }
+      audio.playExplosion(20);
+    },
+
+    onFeatureVaultRoulette: (event: FeatureVaultRouletteData) => {
+      console.log(`[SpaceShooter] 🏆 Vault roulette: ${event.multiplier}× → $${event.payout}`);
+      const isLocal = event.playerId === client.sessionId;
+      if (isLocal) {
+        console.log(`[SpaceShooter] 💰 YOU WON: $${event.payout} (${event.multiplier}×)!`);
+      }
+    },
+
+    onFeatureEmpChain: (event: FeatureEmpChainData) => {
+      console.log(`[SpaceShooter] 📡 EMP chain: ${event.victimIds.length} targets`);
+      // Draw chain lines from source to each victim
+      for (const victimId of event.victimIds) {
+        const obj = latestState?.spaceObjects.get(victimId);
+        if (obj) {
+          fxManager.playEmpChain(event.sourceX, event.sourceY, obj.x, obj.y);
+        }
+      }
+    },
+
+    onFeatureDrillBounce: (event: FeatureDrillBounceData) => {
+      fxManager.playDrillTrail(event.x, event.y, event.angle);
+      audio.playShoot();
+    },
+
+    onFeatureEnded: (event: FeatureEndedData) => {
+      console.log(`[SpaceShooter] ✅ Hazard ended: $${event.totalPayout} total payout`);
     },
   });
 

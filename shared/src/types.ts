@@ -13,7 +13,7 @@ export enum TurretPosition {
   BOTTOM_RIGHT = 'BOTTOM_RIGHT',
 }
 
-/** Nine space object types with increasing rarity/multiplier */
+/** Space object types with increasing rarity/multiplier */
 export enum SpaceObjectType {
   ASTEROID = 'ASTEROID',
   ROCKET = 'ROCKET',
@@ -24,6 +24,12 @@ export enum SpaceObjectType {
   NEBULA_BEAST = 'NEBULA_BEAST',
   COSMIC_WHALE = 'COSMIC_WHALE',
   SUPERNOVA_BOMB = 'SUPERNOVA_BOMB',
+  // Feature targets (spawn hazards on kill)
+  BLACKHOLE_GEN = 'BLACKHOLE_GEN',
+  QUANTUM_DRILL = 'QUANTUM_DRILL',
+  EMP_RELAY = 'EMP_RELAY',
+  ORBITAL_CORE = 'ORBITAL_CORE',
+  COSMIC_VAULT = 'COSMIC_VAULT',
 }
 
 /** Weapon types — determines projectile behavior and cost scaling */
@@ -31,6 +37,22 @@ export type WeaponType = 'standard' | 'spread' | 'lightning';
 
 /** Valid weapon types for runtime validation */
 export const WEAPON_TYPES: readonly WeaponType[] = ['standard', 'spread', 'lightning'] as const;
+
+/** Hazard types spawned by feature targets */
+export type HazardType = 'blackhole' | 'drill' | 'emp' | 'orbital_laser';
+
+/** Player buff types from feature targets */
+export type BuffType = 'orbital_laser' | 'paused' | 'none';
+
+/** Feature target types — hazards CANNOT destroy these (infinite loop prevention) */
+export const FEATURE_TARGET_TYPES: ReadonlySet<SpaceObjectType> = new Set([
+  SpaceObjectType.BLACKHOLE_GEN,
+  SpaceObjectType.QUANTUM_DRILL,
+  SpaceObjectType.EMP_RELAY,
+  SpaceObjectType.ORBITAL_CORE,
+  SpaceObjectType.COSMIC_VAULT,
+  SpaceObjectType.SUPERNOVA_BOMB,
+]);
 
 /** 2D vector */
 export interface IVector2 {
