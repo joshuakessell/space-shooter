@@ -61,12 +61,20 @@ export class InputHandler {
     this.setupWeaponKeys();
   }
 
+  /** Convert client pixel coordinates to game world coordinates (1920×1080) */
+  private clientToWorld(clientX: number, clientY: number): { x: number; y: number } {
+    const rect = this.canvas.getBoundingClientRect();
+    return {
+      x: ((clientX - rect.left) / rect.width) * 1920,
+      y: ((clientY - rect.top) / rect.height) * 1080,
+    };
+  }
+
   private setupListeners(): void {
     this.canvas.addEventListener('mousemove', (e: MouseEvent) => {
-      const rect = this.canvas.getBoundingClientRect();
-      // Scale mouse coordinates to game world coordinates (1920×1080)
-      this.state.mouseX = ((e.clientX - rect.left) / rect.width) * 1920;
-      this.state.mouseY = ((e.clientY - rect.top) / rect.height) * 1080;
+      const { x, y } = this.clientToWorld(e.clientX, e.clientY);
+      this.state.mouseX = x;
+      this.state.mouseY = y;
     });
 
     this.canvas.addEventListener('mousedown', (e: MouseEvent) => {
@@ -88,10 +96,9 @@ export class InputHandler {
     });
     this.canvas.addEventListener('mousedown', (e: MouseEvent) => {
       if (e.button === 2) {
-        // Right-click: will be handled in tryLockOn()
-        // (called by main loop with space object data)
-        this.state.mouseX = ((e.clientX - this.canvas.getBoundingClientRect().left) / this.canvas.getBoundingClientRect().width) * 1920;
-        this.state.mouseY = ((e.clientY - this.canvas.getBoundingClientRect().top) / this.canvas.getBoundingClientRect().height) * 1080;
+        const { x, y } = this.clientToWorld(e.clientX, e.clientY);
+        this.state.mouseX = x;
+        this.state.mouseY = y;
         this.pendingRightClick = true;
       }
     });
@@ -100,9 +107,9 @@ export class InputHandler {
     this.canvas.addEventListener('touchstart', (e: TouchEvent) => {
       e.preventDefault();
       const touch = e.touches[0];
-      const rect = this.canvas.getBoundingClientRect();
-      this.state.mouseX = ((touch.clientX - rect.left) / rect.width) * 1920;
-      this.state.mouseY = ((touch.clientY - rect.top) / rect.height) * 1080;
+      const { x, y } = this.clientToWorld(touch.clientX, touch.clientY);
+      this.state.mouseX = x;
+      this.state.mouseY = y;
       this.state.mouseDown = true;
     }, { passive: false });
 
@@ -112,9 +119,9 @@ export class InputHandler {
 
     this.canvas.addEventListener('touchmove', (e: TouchEvent) => {
       const touch = e.touches[0];
-      const rect = this.canvas.getBoundingClientRect();
-      this.state.mouseX = ((touch.clientX - rect.left) / rect.width) * 1920;
-      this.state.mouseY = ((touch.clientY - rect.top) / rect.height) * 1080;
+      const { x, y } = this.clientToWorld(touch.clientX, touch.clientY);
+      this.state.mouseX = x;
+      this.state.mouseY = y;
     });
   }
 

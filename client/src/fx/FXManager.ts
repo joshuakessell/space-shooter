@@ -20,9 +20,6 @@ export class FXManager {
   private trailEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
   private vortexEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
 
-  // CRT scanline effect reference
-  private crtEffect: Phaser.Renderer.WebGL.Pipelines.PostFXPipeline | null = null;
-
   constructor() {
       // Defer initialization until the scene is ready
   }
@@ -40,7 +37,6 @@ export class FXManager {
       }
 
       this.createEmitters();
-      this.setupCRTEffect();
   }
 
   private createEmitters() {
@@ -99,25 +95,6 @@ export class FXManager {
           blendMode: Phaser.BlendModes.ADD,
       });
       this.vortexEmitter.setDepth(36);
-  }
-
-  /**
-   * Setup CRT scanline post-processing effect on camera
-   */
-  private setupCRTEffect() {
-      // Add a subtle CRT/scanline effect for retro aesthetic
-      // Note: Using camera postFX pipeline for scanline/CRT simulation
-      const camera = this.scene.cameras.main;
-      if (camera.postFX) {
-          // The scanline effect is subtle with CRT-like distortion
-          try {
-              // Attempt to add a scanline/CRT effect if available
-              // This would require a custom shader, so we'll note it for future implementation
-              // For now, we'll use built-in bloom as a visual enhancement
-          } catch (e) {
-              // Fallback - CRT effect may require custom shaders
-          }
-      }
   }
 
   // ─── Public FX Methods ───

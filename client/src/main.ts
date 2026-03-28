@@ -1,9 +1,6 @@
 // ─────────────────────────────────────────────────────────────
 // Main Entry Point — Bootstraps Game Client
-// Connects network, input, renderer, HUD, audio, and FX.
-//
-// Phase 5: Wires AudioManager + FXManager + screen shake +
-// turret recoil + jackpot popup + coin shower audio sync.
+// Connects network, input, renderer (Phaser), HUD, audio, FX.
 // ─────────────────────────────────────────────────────────────
 
 import { BET_TIERS, GAME_WIDTH, GAME_HEIGHT, SEAT_COORDINATES, SEAT_COLORS, SPREAD_ANGLE_OFFSET, MAX_BOUNCES } from '@space-shooter/shared';
@@ -54,7 +51,6 @@ let currentWeapon: WeaponType = 'standard';
 async function boot(): Promise<void> {
   console.log('[SpaceShooter] Booting...');
 
-  // 1. Renderer + FX
   // 1. Phaser + FX
   const config: Phaser.Types.Core.GameConfig = {
     type: Phaser.WEBGL,

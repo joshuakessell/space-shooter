@@ -172,7 +172,8 @@ export class GameClient {
 
       // Listen for state changes
       this.room.onStateChange((state) => {
-        const snapshot = this.snapshotState(state as unknown as Record<string, unknown>);
+        if (!state || typeof state !== 'object') return;
+        const snapshot = this.snapshotState(state as Record<string, unknown>);
         this.callbacks.onStateChange(snapshot);
       });
 

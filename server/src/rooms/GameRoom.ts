@@ -74,6 +74,7 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
 
   // ─── Tick loop ───
   private simulationInterval: ReturnType<typeof setInterval> | null = null;
+  private dbSyncInterval: ReturnType<typeof setInterval> | null = null;
 
   // ─── Seat management ───
   private readonly seats: SeatArray = new Array<string | null>(MAX_PLAYERS).fill(null);
@@ -94,8 +95,12 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
       this.handleFireWeapon(client, message);
     },
     [CLIENT_MESSAGES.ADMIN_REFILL]: (client: Client, message: { amount: number }) => {
-      // Testing backdoor: if a player runs out of money during load test, refill them
-      if (typeof message.amount === 'number' && message.amount > 0) {
+      // Gated admin refill: only allowed for authenticated admin users
+      if (!client.auth?.isAdmin) {
+        console.warn(`[SECURITY] Unauthorized admin refill attempt from ${client.sessionId}`);
+        return;
+      }
+      if (typeof message.amount === 'number' && Number.isFinite(message.amount) && message.amount > 0) {
         this.wallet.awardPayout(client.sessionId, message.amount);
         console.log(`[GameRoom] Admin refill granted to ${client.auth?.username || client.sessionId} for ${message.amount} credits`);
       }
@@ -144,7 +149,7 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
     }, FIXED_TIMESTEP_MS);
 
     // 5000ms batch DB sync timer
-    setInterval(async () => {
+    this.dbSyncInterval = setInterval(async () => {
       try {
         await this.wallet.syncToDatabase();
       } catch (err) {
@@ -288,8 +293,9 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
 
       console.log(`[GameRoom] Player ${client.sessionId} reconnected! Balance: ${this.wallet.getBalance(client.sessionId)}`);
 
-    } catch {
+    } catch (err) {
       // Reconnection timed out or was rejected — full cleanup
+      console.log(`[GameRoom] Player ${client.sessionId} reconnection expired:`, err instanceof Error ? err.message : 'timeout');
       this.reconnections.delete(client.sessionId);
       this.performFullCleanup(client.sessionId);
     }
@@ -345,6 +351,10 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
     if (this.simulationInterval) {
       clearInterval(this.simulationInterval);
       this.simulationInterval = null;
+    }
+    if (this.dbSyncInterval) {
+      clearInterval(this.dbSyncInterval);
+      this.dbSyncInterval = null;
     }
     this.world.clear();
     this.wallet.clear();
@@ -445,6 +455,7 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
   }
 
   private handleChangeBet(client: Client, message: ChangeBetMessage): void {
+    if (!Number.isFinite(message.amount)) return;
     // Snap to nearest valid bet tier
     const requestedAmount = Math.floor(message.amount);
     let bestTier: number = BET_TIERS[0];

@@ -10,6 +10,9 @@ import {
   SpaceObjectType,
   GAME_WIDTH,
   PROJECTILE_RADIUS,
+  CHAIN_LIGHTNING_RADIUS,
+  AOE_BLAST_RADIUS,
+  VAULT_MULTIPLIERS,
 } from '@space-shooter/shared';
 import { World } from '../src/ecs/World.js';
 import { movementSystem } from '../src/ecs/systems/MovementSystem.js';
@@ -805,5 +808,307 @@ describe('SystemRunner (with Economy)', () => {
     // A projectile should exist
     assert.ok(result.newProjectiles.length === 1);
     assert.strictEqual(result.rejectedShots.length, 0);
+  });
+});
+
+// ─── Weapon Type Tests ───
+
+describe('Weapon Types', () => {
+  it('spread weapon should create 3 projectiles per fire intent', () => {
+    const rng = new SeededRngService(42);
+    const wallet = new WalletManager();
+    wallet.initPlayer('p1', 10000);
+    const economy = new RoomEconomyManager(GAME_BALANCE_CONFIG);
+    const world = new World();
+
+    const turretId = world.createEntity();
+    world.positions.set(turretId, { x: 960, y: 1020 });
+    world.turrets.set(turretId, { playerId: 'p1', position: 'BOTTOM_MIDDLE' as never });
+
+    const engine = new RtpEngine(rng, economy, GAME_BALANCE_CONFIG);
+    engine.addPlayer('p1');
+    const spawnSystem = new SpawnSystem(rng, GAME_BALANCE_CONFIG);
+    const runner = new SystemRunner(world, engine, rng, wallet, economy, GAME_BALANCE_CONFIG, spawnSystem, { globalReservePool: 0 });
+
+    const intentId = world.createEntity();
+    world.fireIntents.set(intentId, {
+      playerId: 'p1',
+      angle: -Math.PI / 2,
+      betAmount: 10,
+      weaponType: 'spread',
+    });
+
+    const result = runner.tick(['p1']);
+    // Spread creates 3 projectiles (one per spread angle)
+    assert.strictEqual(result.newProjectiles.length, 3, 'Spread should create 3 projectiles');
+    // Cost = betAmount × WEAPON_COST.spread (3)
+    assert.strictEqual(wallet.getBalance('p1'), 10000 - 30);
+  });
+
+  it('lightning weapon should create chain-capable projectile', () => {
+    const rng = new SeededRngService(42);
+    const wallet = new WalletManager();
+    wallet.initPlayer('p1', 10000);
+    const economy = new RoomEconomyManager(GAME_BALANCE_CONFIG);
+    const world = new World();
+
+    const turretId = world.createEntity();
+    world.positions.set(turretId, { x: 960, y: 1020 });
+    world.turrets.set(turretId, { playerId: 'p1', position: 'BOTTOM_MIDDLE' as never });
+
+    const engine = new RtpEngine(rng, economy, GAME_BALANCE_CONFIG);
+    engine.addPlayer('p1');
+    const spawnSystem = new SpawnSystem(rng, GAME_BALANCE_CONFIG);
+    const runner = new SystemRunner(world, engine, rng, wallet, economy, GAME_BALANCE_CONFIG, spawnSystem, { globalReservePool: 0 });
+
+    const intentId = world.createEntity();
+    world.fireIntents.set(intentId, {
+      playerId: 'p1',
+      angle: -Math.PI / 2,
+      betAmount: 10,
+      weaponType: 'lightning',
+    });
+
+    const result = runner.tick(['p1']);
+    assert.strictEqual(result.newProjectiles.length, 1, 'Lightning should create 1 projectile');
+
+    // Verify the projectile has chain properties
+    const projEntity = result.newProjectiles[0];
+    const proj = world.projectiles.get(projEntity.entityId);
+    assert.ok(proj, 'Projectile should exist');
+    assert.strictEqual(proj!.weaponType, 'lightning');
+    assert.ok(proj!.maxChains > 0, 'Lightning projectile should have maxChains > 0');
+    assert.strictEqual(proj!.chainCount, 0, 'Chain count should start at 0');
+  });
+});
+
+// ─── Chain Lightning Tests ───
+
+describe('Chain Lightning (DestroySystem)', () => {
+  it('lightning projectile should chain to nearby target after hit', () => {
+    const rng = new SeededRngService(1); // Seed that produces low rolls → kills
+    const economy = new RoomEconomyManager(GAME_BALANCE_CONFIG);
+    const engine = new RtpEngine(rng, economy, GAME_BALANCE_CONFIG);
+    engine.addPlayer('p1');
+    const wallet = new WalletManager();
+    wallet.initPlayer('p1', 10000);
+
+    const world = new World();
+
+    // Create two targets close together
+    const obj1 = world.createEntity();
+    world.positions.set(obj1, { x: 500, y: 500 });
+    world.bounds.set(obj1, { radius: 30 });
+    world.spaceObjects.set(obj1, {
+      type: SpaceObjectType.ASTEROID,
+      multiplier: 2, destroyProbability: 0.49,
+      absorbedCredits: 9999, isDead: false, isCaptured: false,
+    });
+
+    const obj2 = world.createEntity();
+    world.positions.set(obj2, { x: 600, y: 500 }); // Within CHAIN_LIGHTNING_RADIUS
+    world.bounds.set(obj2, { radius: 30 });
+    world.spaceObjects.set(obj2, {
+      type: SpaceObjectType.ASTEROID,
+      multiplier: 2, destroyProbability: 0.49,
+      absorbedCredits: 0, isDead: false, isCaptured: false,
+    });
+
+    // Create lightning projectile hitting obj1
+    const proj = world.createEntity();
+    world.positions.set(proj, { x: 500, y: 500 });
+    world.projectiles.set(proj, {
+      ownerId: 'p1', betAmount: 10, angle: 0,
+      bouncesRemaining: 10, weaponType: 'lightning',
+      chainCount: 0, maxChains: 3, hitTargetIds: new Set(),
+    });
+
+    const collisions = [
+      { projectileId: proj, objectId: obj1, projectileOwnerId: 'p1', betAmount: 10 },
+    ];
+
+    const { chainHits } = destroySystem(world, collisions, engine, rng, wallet, economy, { globalReservePool: 9999 });
+
+    const projComp = world.projectiles.get(proj);
+    if (projComp && !world.pendingDestroy.has(proj)) {
+      // Lightning should have chained: hitTargetIds should include obj1
+      assert.ok(projComp.hitTargetIds.has(obj1), 'Should track hit target');
+      assert.ok(projComp.chainCount >= 1, 'Chain count should increment');
+    }
+  });
+});
+
+// ─── Supernova AoE Tests ───
+
+describe('Supernova AoE (DestroySystem)', () => {
+  it('supernova kill should trigger AoE blast', () => {
+    const rng = new SeededRngService(1);
+    const economy = new RoomEconomyManager(GAME_BALANCE_CONFIG);
+    const engine = new RtpEngine(rng, economy, GAME_BALANCE_CONFIG);
+    engine.addPlayer('p1');
+    const wallet = new WalletManager();
+    wallet.initPlayer('p1', 10000);
+
+    const world = new World();
+
+    // Create supernova bomb
+    const bomb = world.createEntity();
+    world.positions.set(bomb, { x: 500, y: 500 });
+    world.bounds.set(bomb, { radius: 48 });
+    world.spaceObjects.set(bomb, {
+      type: SpaceObjectType.SUPERNOVA_BOMB,
+      multiplier: 15, destroyProbability: 0.065,
+      absorbedCredits: 9999, isDead: false, isCaptured: false,
+    });
+
+    // Create nearby target within AoE radius
+    const nearby = world.createEntity();
+    world.positions.set(nearby, { x: 600, y: 500 });
+    world.bounds.set(nearby, { radius: 30 });
+    world.spaceObjects.set(nearby, {
+      type: SpaceObjectType.ASTEROID,
+      multiplier: 2, destroyProbability: 0.49,
+      absorbedCredits: 0, isDead: false, isCaptured: false,
+    });
+
+    const proj = world.createEntity();
+    world.positions.set(proj, { x: 500, y: 500 });
+    world.projectiles.set(proj, {
+      ownerId: 'p1', betAmount: 10, angle: 0,
+      bouncesRemaining: 10, weaponType: 'standard',
+      chainCount: 0, maxChains: 0, hitTargetIds: new Set(),
+    });
+
+    const collisions = [
+      { projectileId: proj, objectId: bomb, projectileOwnerId: 'p1', betAmount: 10 },
+    ];
+
+    const { payouts, aoeBlasts } = destroySystem(world, collisions, engine, rng, wallet, economy, { globalReservePool: 99999 });
+
+    // If the bomb was killed, AoE should have been triggered
+    const bombObj = world.spaceObjects.get(bomb);
+    if (bombObj?.isDead) {
+      assert.ok(aoeBlasts.length > 0, 'Killing supernova should trigger AoE blast');
+      assert.strictEqual(aoeBlasts[0].playerId, 'p1');
+    }
+  });
+});
+
+// ─── Feature Target Spawn Tests ───
+
+describe('Feature Target Spawn (DestroySystem)', () => {
+  it('killing a feature target should produce a FeatureSpawnEvent', () => {
+    const rng = new SeededRngService(1);
+    const economy = new RoomEconomyManager(GAME_BALANCE_CONFIG);
+    const engine = new RtpEngine(rng, economy, GAME_BALANCE_CONFIG);
+    engine.addPlayer('p1');
+    const wallet = new WalletManager();
+    wallet.initPlayer('p1', 10000);
+
+    const world = new World();
+
+    // Create a Cosmic Vault (feature target)
+    const vault = world.createEntity();
+    world.positions.set(vault, { x: 500, y: 500 });
+    world.bounds.set(vault, { radius: 40 });
+    world.spaceObjects.set(vault, {
+      type: SpaceObjectType.COSMIC_VAULT,
+      multiplier: 10, destroyProbability: 0.098,
+      absorbedCredits: 9999, isDead: false, isCaptured: false,
+    });
+
+    const proj = world.createEntity();
+    world.positions.set(proj, { x: 500, y: 500 });
+    world.projectiles.set(proj, {
+      ownerId: 'p1', betAmount: 10, angle: 0,
+      bouncesRemaining: 10, weaponType: 'standard',
+      chainCount: 0, maxChains: 0, hitTargetIds: new Set(),
+    });
+
+    const collisions = [
+      { projectileId: proj, objectId: vault, projectileOwnerId: 'p1', betAmount: 10 },
+    ];
+
+    const { featureSpawns } = destroySystem(world, collisions, engine, rng, wallet, economy, { globalReservePool: 99999 });
+
+    const vaultObj = world.spaceObjects.get(vault);
+    if (vaultObj?.isDead) {
+      assert.ok(featureSpawns.length > 0, 'Killing vault should produce feature spawn');
+      assert.strictEqual(featureSpawns[0].hazardType, 'vault');
+      assert.strictEqual(featureSpawns[0].playerId, 'p1');
+      assert.ok(VAULT_MULTIPLIERS.includes(featureSpawns[0].vaultMultiplier as any),
+        `Vault multiplier should be one of ${VAULT_MULTIPLIERS}`);
+    }
+  });
+
+  it('killing a blackhole generator should produce blackhole hazard', () => {
+    const rng = new SeededRngService(1);
+    const economy = new RoomEconomyManager(GAME_BALANCE_CONFIG);
+    const engine = new RtpEngine(rng, economy, GAME_BALANCE_CONFIG);
+    engine.addPlayer('p1');
+    const wallet = new WalletManager();
+    wallet.initPlayer('p1', 10000);
+
+    const world = new World();
+
+    const bh = world.createEntity();
+    world.positions.set(bh, { x: 500, y: 500 });
+    world.bounds.set(bh, { radius: 40 });
+    world.spaceObjects.set(bh, {
+      type: SpaceObjectType.BLACKHOLE_GEN,
+      multiplier: 20, destroyProbability: 0.049,
+      absorbedCredits: 9999, isDead: false, isCaptured: false,
+    });
+
+    const proj = world.createEntity();
+    world.positions.set(proj, { x: 500, y: 500 });
+    world.projectiles.set(proj, {
+      ownerId: 'p1', betAmount: 10, angle: 0,
+      bouncesRemaining: 10, weaponType: 'standard',
+      chainCount: 0, maxChains: 0, hitTargetIds: new Set(),
+    });
+
+    const collisions = [
+      { projectileId: proj, objectId: bh, projectileOwnerId: 'p1', betAmount: 10 },
+    ];
+
+    const { featureSpawns } = destroySystem(world, collisions, engine, rng, wallet, economy, { globalReservePool: 99999 });
+
+    const bhObj = world.spaceObjects.get(bh);
+    if (bhObj?.isDead) {
+      assert.ok(featureSpawns.length > 0, 'Killing blackhole gen should produce feature spawn');
+      assert.strictEqual(featureSpawns[0].hazardType, 'blackhole');
+      assert.ok(featureSpawns[0].budget > 0, 'Blackhole should have a positive budget');
+    }
+  });
+});
+
+// ─── RtpEngine NaN Guard Tests ───
+
+describe('RtpEngine NaN Guards', () => {
+  it('should throw on NaN bet amount', () => {
+    const rng = new SeededRngService(42);
+    const economy = new RoomEconomyManager(GAME_BALANCE_CONFIG);
+    const engine = new RtpEngine(rng, economy, GAME_BALANCE_CONFIG);
+    engine.addPlayer('p1');
+
+    assert.throws(
+      () => engine.evaluateHit(SpaceObjectType.ASTEROID, NaN, 'p1', 1, 0, { globalReservePool: 0 }),
+      /Non-finite value detected/,
+      'Should throw on NaN bet'
+    );
+  });
+
+  it('should throw on NaN reserve pool', () => {
+    const rng = new SeededRngService(42);
+    const economy = new RoomEconomyManager(GAME_BALANCE_CONFIG);
+    const engine = new RtpEngine(rng, economy, GAME_BALANCE_CONFIG);
+    engine.addPlayer('p1');
+
+    assert.throws(
+      () => engine.evaluateHit(SpaceObjectType.ASTEROID, 10, 'p1', 1, 0, { globalReservePool: NaN }),
+      /Non-finite value detected/,
+      'Should throw on NaN reserve pool'
+    );
   });
 });

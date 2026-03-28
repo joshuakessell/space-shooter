@@ -129,8 +129,12 @@ export class SpawnSystem {
     so.isDead = false;
     world.spaceObjects.set(entityId, so);
 
+    // Game balance: feature targets (blackhole, drill, emp, orbital, vault) stay on
+    // screen 2.5× longer than normal objects to give players enough time to shoot them,
+    // since they are rarer and trigger valuable hazard/bonus mechanics on kill.
     const isFeature = FEATURE_TARGET_TYPES.has(type as any);
-    const finalDuration = isFeature ? request.duration * 2.5 : request.duration;
+    const FEATURE_DURATION_MULTIPLIER = 2.5;
+    const finalDuration = isFeature ? request.duration * FEATURE_DURATION_MULTIPLIER : request.duration;
 
     world.paths.set(entityId, {
       pathType: request.pathType,

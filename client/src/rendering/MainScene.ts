@@ -71,9 +71,10 @@ export class MainScene extends Phaser.Scene {
   private backgroundImage!: Phaser.GameObjects.Image;
   private parallaxLayer!: Phaser.GameObjects.Layer;
 
-  // Ghost lasers layer
+  // Ghost lasers layer (ring buffer for O(1) add/remove)
   private ghostLaserGraphics!: Phaser.GameObjects.Graphics;
-  private readonly ghostLasers: Array<{
+  private static readonly MAX_GHOST_LASERS = 200;
+  private readonly ghostLaserBuffer: Array<{
     id: number;
     x: number;
     y: number;
@@ -82,9 +83,13 @@ export class MainScene extends Phaser.Scene {
     age: number;
     color: string;
     weaponType: string;
-  }> = [];
+    active: boolean;
+  } | null> = new Array(MainScene.MAX_GHOST_LASERS).fill(null);
+  private ghostLaserHead = 0;
+  private ghostLaserCount = 0;
 
-  // Coin particles
+  // Coin particles (swap-and-pop for O(1) removal)
+  private static readonly MAX_COIN_PARTICLES = 120;
   private readonly coinParticles: Array<{
     x: number;
     y: number;
@@ -402,8 +407,8 @@ export class MainScene extends Phaser.Scene {
     color: string,
     weaponType: string
   ) {
-    if (this.ghostLasers.length > 200) this.ghostLasers.shift();
-    this.ghostLasers.push({
+    // Ring buffer: overwrite oldest slot at head, O(1)
+    this.ghostLaserBuffer[this.ghostLaserHead] = {
       id: this.nextGhostId++,
       x,
       y,
@@ -412,7 +417,10 @@ export class MainScene extends Phaser.Scene {
       age: 0,
       color,
       weaponType,
-    });
+      active: true,
+    };
+    this.ghostLaserHead = (this.ghostLaserHead + 1) % MainScene.MAX_GHOST_LASERS;
+    if (this.ghostLaserCount < MainScene.MAX_GHOST_LASERS) this.ghostLaserCount++;
   }
 
   public addCoinShower(
@@ -428,7 +436,7 @@ export class MainScene extends Phaser.Scene {
     const count = Math.min(8 + Math.floor(payout / 10), 30);
 
     for (let i = 0; i < count; i++) {
-      if (this.coinParticles.length >= 120) break;
+      if (this.coinParticles.length >= MainScene.MAX_COIN_PARTICLES) break;
       const burstAngle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.5;
       const burstDist = 40 + Math.random() * 60;
       this.coinParticles.push({
@@ -474,10 +482,12 @@ export class MainScene extends Phaser.Scene {
   }
 
   private updateAndRenderVFX(deltaSec: number, deltaMs: number) {
-    // 1. Ghost Lasers
+    // 1. Ghost Lasers (ring buffer iteration)
     this.ghostLaserGraphics.clear();
-    for (let i = this.ghostLasers.length - 1; i >= 0; i--) {
-      const l = this.ghostLasers[i]!;
+    for (let i = 0; i < MainScene.MAX_GHOST_LASERS; i++) {
+      const l = this.ghostLaserBuffer[i];
+      if (!l || !l.active) continue;
+
       l.age += deltaSec;
 
       // Move laser
@@ -498,7 +508,7 @@ export class MainScene extends Phaser.Scene {
       // Client-side collision check
       let hasHit = false;
       if (this.roomState?.spaceObjects) {
-        for (const [id, target] of this.roomState.spaceObjects.entries()) {
+        for (const [, target] of this.roomState.spaceObjects.entries()) {
           const dist = Math.hypot(target.x - l.x, target.y - l.y);
           const radius = OBJECT_RADII.get(target.objectType as SpaceObjectType) ?? 30;
           if (dist < radius + 10) {
@@ -509,7 +519,8 @@ export class MainScene extends Phaser.Scene {
       }
 
       if (hasHit) {
-        this.ghostLasers.splice(i, 1);
+        l.active = false;
+        this.ghostLaserCount--;
         continue;
       }
 
@@ -546,7 +557,7 @@ export class MainScene extends Phaser.Scene {
       this.ghostLaserGraphics.strokePath();
     }
 
-    // 2. Coin particles
+    // 2. Coin particles (swap-and-pop for O(1) removal)
     for (let i = this.coinParticles.length - 1; i >= 0; i--) {
       const p = this.coinParticles[i]!;
       p.age += deltaSec;
@@ -555,7 +566,9 @@ export class MainScene extends Phaser.Scene {
         if (p.isLocal && this.onLocalCoinsArrived) {
           this.onLocalCoinsArrived(p.payout);
         }
-        this.coinParticles.splice(i, 1);
+        // Swap-and-pop: O(1) removal
+        this.coinParticles[i] = this.coinParticles[this.coinParticles.length - 1];
+        this.coinParticles.pop();
         continue;
       }
 
@@ -585,7 +598,9 @@ export class MainScene extends Phaser.Scene {
 
       if (n.age > 2) {
         if (n.textObj) n.textObj.destroy();
-        this.payoutNotifications.splice(i, 1);
+        // Swap-and-pop: O(1) removal
+        this.payoutNotifications[i] = this.payoutNotifications[this.payoutNotifications.length - 1];
+        this.payoutNotifications.pop();
         continue;
       }
 

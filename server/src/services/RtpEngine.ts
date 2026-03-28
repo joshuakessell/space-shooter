@@ -106,22 +106,17 @@ export class RtpEngine {
       throw new Error(`[RtpEngine] Unknown SpaceObjectType: ${objectType}`);
     }
 
-    const bet = Number(betAmount) || 0;
-    const mult = Number(objConfig.multiplier) || 1;
-    const payout = bet * mult;
-
-    if (Number.isNaN(payout) || Number.isNaN(absorbedCredits) || Number.isNaN(reservePool.globalReservePool)) {
-      console.error("[RTP ERROR] NaN detected in RtpEngine", { bet, mult, absorbed: absorbedCredits, pool: reservePool.globalReservePool }); 
-      return {
-        destroyed: false,
-        payout: 0,
-        multiplier: mult,
-        rngRoll: 0,
-        finalThreshold: 0,
-        modifiers: { baseChance: 0, globalVolatility: 0, hotSeatModifier: 0, pinataModifier: 0, pityModifier: 0, unclamped: 0, clamped: 0 },
-        newAbsorbedCredits: Number(absorbedCredits) || 0,
-      };
+    // Guard against NaN before any coercion — NaN inputs indicate corrupted economy state
+    if (!Number.isFinite(betAmount) || !Number.isFinite(absorbedCredits) || !Number.isFinite(reservePool.globalReservePool)) {
+      throw new Error(
+        `[RTP CRITICAL] Non-finite value detected in RtpEngine — economy state corrupted. ` +
+        `bet=${betAmount}, absorbed=${absorbedCredits}, pool=${reservePool.globalReservePool}`
+      );
     }
+
+    const bet = betAmount;
+    const mult = objConfig.multiplier;
+    const payout = bet * mult;
 
     const multiplier = mult;
 

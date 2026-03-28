@@ -304,29 +304,37 @@ function resolveAoEBlast(
   const destroyedTargetIds: EntityId[] = [];
 
   // Build spatial query tree for space objects in blast zone
+  // Wrapped in try-finally to ensure tree is cleared even on exception
   aoeQueryTree.clear();
-  for (const [entityId, _spaceObj] of world.spaceObjects) {
-    if (world.pendingDestroy.has(entityId)) continue;
-    const pos = world.positions.get(entityId);
-    const bound = world.bounds.get(entityId);
-    if (!pos || !bound) continue;
-    if (_spaceObj.isDead) continue;
+  let blastCandidates: ReturnType<typeof aoeQueryTree.query>;
+  try {
+    for (const [entityId, _spaceObj] of world.spaceObjects) {
+      if (world.pendingDestroy.has(entityId)) continue;
+      const pos = world.positions.get(entityId);
+      const bound = world.bounds.get(entityId);
+      if (!pos || !bound) continue;
+      if (_spaceObj.isDead) continue;
 
-    aoeQueryTree.insert({
-      entityId,
-      x: pos.x,
-      y: pos.y,
-      radius: bound.radius,
+      aoeQueryTree.insert({
+        entityId,
+        x: pos.x,
+        y: pos.y,
+        radius: bound.radius,
+      });
+    }
+
+    // Query all targets within blast radius
+    blastCandidates = aoeQueryTree.query({
+      entityId: -1,
+      x: blastX,
+      y: blastY,
+      radius: blastRadius,
     });
+  } catch (err) {
+    console.error('[DestroySystem] Quadtree error during AoE blast:', err);
+    aoeQueryTree.clear();
+    return { x: blastX, y: blastY, totalPayout: 0, playerId, destroyedTargetIds: [] };
   }
-
-  // Query all targets within blast radius
-  const blastCandidates = aoeQueryTree.query({
-    entityId: -1,
-    x: blastX,
-    y: blastY,
-    radius: blastRadius,
-  });
 
   for (const candidate of blastCandidates) {
     const spaceObj = world.spaceObjects.get(candidate.entityId);

@@ -41,6 +41,21 @@ export class AudioManager {
   private coinCombo = 0;
   private coinDebounceTimer: number | null = null;
   private activeExplosions = 0;
+  private failedLoads: string[] = [];
+
+  /** Optional callback fired when a sound file fails to load */
+  public onLoadError: ((soundName: string) => void) | null = null;
+
+  private trackLoadError(name: string): void {
+    this.failedLoads.push(name);
+    console.warn(`[AudioManager] Failed to load: ${name}`);
+    this.onLoadError?.(name);
+  }
+
+  /** Returns list of sound files that failed to load */
+  public getFailedLoads(): readonly string[] {
+    return this.failedLoads;
+  }
 
   constructor() {
     // Initialize music
@@ -48,7 +63,7 @@ export class AudioManager {
       src: ['assets/audio/music/bgm.mp3'],
       loop: true,
       volume: 0.4,
-      onloaderror: () => console.warn('[Howler] Missing file: bgm.mp3'),
+      onloaderror: () => this.trackLoadError('bgm.mp3'),
       onplayerror: () => console.warn('[Howler] Play error: bgm.mp3'),
     });
 
@@ -56,26 +71,26 @@ export class AudioManager {
     this.laserStandard = new Howl({
       src: ['assets/audio/sfx/laser_standard.mp3'],
       volume: 0.3,
-      onloaderror: () => console.warn('[Howler] Missing file: laser_standard.mp3'),
+      onloaderror: () => this.trackLoadError('laser_standard.mp3'),
     });
 
     this.laserSpread = new Howl({
       src: ['assets/audio/sfx/laser_spread.mp3'],
       volume: 0.3,
-      onloaderror: () => console.warn('[Howler] Missing file: laser_spread.mp3'),
+      onloaderror: () => this.trackLoadError('laser_spread.mp3'),
     });
 
     this.laserLightning = new Howl({
       src: ['assets/audio/sfx/laser_lightning.mp3'],
       volume: 0.3,
-      onloaderror: () => console.warn('[Howler] Missing file: laser_lightning.mp3'),
+      onloaderror: () => this.trackLoadError('laser_lightning.mp3'),
     });
 
     // Initialize explosion sounds
     this.explosionSmall = new Howl({
       src: ['assets/audio/sfx/explosion_small.mp3'],
       volume: 0.5,
-      onloaderror: () => console.warn('[Howler] Missing file: explosion_small.mp3'),
+      onloaderror: () => this.trackLoadError('explosion_small.mp3'),
       onend: () => {
         this.activeExplosions = Math.max(0, this.activeExplosions - 1);
       },
@@ -84,7 +99,7 @@ export class AudioManager {
     this.explosionMedium = new Howl({
       src: ['assets/audio/sfx/explosion_medium.mp3'],
       volume: 0.5,
-      onloaderror: () => console.warn('[Howler] Missing file: explosion_medium.mp3'),
+      onloaderror: () => this.trackLoadError('explosion_medium.mp3'),
       onend: () => {
         this.activeExplosions = Math.max(0, this.activeExplosions - 1);
       },
@@ -93,7 +108,7 @@ export class AudioManager {
     this.explosionBoss = new Howl({
       src: ['assets/audio/sfx/explosion_boss.mp3'],
       volume: 0.5,
-      onloaderror: () => console.warn('[Howler] Missing file: explosion_boss.mp3'),
+      onloaderror: () => this.trackLoadError('explosion_boss.mp3'),
       onend: () => {
         this.activeExplosions = Math.max(0, this.activeExplosions - 1);
       },
@@ -103,56 +118,56 @@ export class AudioManager {
     this.coinCollect = new Howl({
       src: ['assets/audio/sfx/coin_collect.mp3'],
       volume: 0.4,
-      onloaderror: () => console.warn('[Howler] Missing file: coin_collect.mp3'),
+      onloaderror: () => this.trackLoadError('coin_collect.mp3'),
     });
 
     this.jackpotSiren = new Howl({
       src: ['assets/audio/sfx/jackpot_siren.mp3'],
       volume: 0.6,
-      onloaderror: () => console.warn('[Howler] Missing file: jackpot_siren.mp3'),
+      onloaderror: () => this.trackLoadError('jackpot_siren.mp3'),
     });
 
     this.impactHit = new Howl({
       src: ['assets/audio/sfx/impact_hit.mp3'],
       volume: 0.4,
-      onloaderror: () => console.warn('[Howler] Missing file: impact_hit.mp3'),
+      onloaderror: () => this.trackLoadError('impact_hit.mp3'),
     });
 
     // Initialize special ability sounds
     this.blackholeActivate = new Howl({
       src: ['assets/audio/sfx/blackhole_activate.mp3'],
       volume: 0.5,
-      onloaderror: () => console.warn('[Howler] Missing file: blackhole_activate.mp3'),
+      onloaderror: () => this.trackLoadError('blackhole_activate.mp3'),
     });
 
     this.empDischarge = new Howl({
       src: ['assets/audio/sfx/emp_discharge.mp3'],
       volume: 0.5,
-      onloaderror: () => console.warn('[Howler] Missing file: emp_discharge.mp3'),
+      onloaderror: () => this.trackLoadError('emp_discharge.mp3'),
     });
 
     this.drillLaunch = new Howl({
       src: ['assets/audio/sfx/drill_launch.mp3'],
       volume: 0.5,
-      onloaderror: () => console.warn('[Howler] Missing file: drill_launch.mp3'),
+      onloaderror: () => this.trackLoadError('drill_launch.mp3'),
     });
 
     this.orbitalLaser = new Howl({
       src: ['assets/audio/sfx/orbital_laser.mp3'],
       volume: 0.5,
-      onloaderror: () => console.warn('[Howler] Missing file: orbital_laser.mp3'),
+      onloaderror: () => this.trackLoadError('orbital_laser.mp3'),
     });
 
     this.vaultOpen = new Howl({
       src: ['assets/audio/sfx/vault_open.mp3'],
       volume: 0.5,
-      onloaderror: () => console.warn('[Howler] Missing file: vault_open.mp3'),
+      onloaderror: () => this.trackLoadError('vault_open.mp3'),
     });
 
     this.supernovaBlast = new Howl({
       src: ['assets/audio/sfx/supernova_blast.mp3'],
       volume: 0.5,
-      onloaderror: () => console.warn('[Howler] Missing file: supernova_blast.mp3'),
+      onloaderror: () => this.trackLoadError('supernova_blast.mp3'),
     });
   }
 
