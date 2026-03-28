@@ -39,8 +39,14 @@ import type { WalletManager } from '../../services/WalletManager.js';
 import type { RoomEconomyManager } from '../../services/RoomEconomyManager.js';
 import type { IGameBalanceConfig } from '../../config/GameBalanceConfig.js';
 
+// ─── Interfaces ───
+
+export interface IReservePoolProvider {
+  globalReservePool: number;
+}
+
 /** Result of a single simulation tick */
-export interface TickResult {
+export interface SystemRunnerResult {
   readonly payouts: readonly IPayoutEvent[];
   readonly destroyedIds: readonly EntityId[];
   readonly newProjectiles: readonly NewProjectileInfo[];
@@ -91,8 +97,6 @@ export interface RejectedShot {
  * Data flows via Components only.
  */
 export class SystemRunner {
-  private readonly spawnSystem: SpawnSystem;
-
   constructor(
     private readonly world: World,
     private readonly rtpEngine: RtpEngine,
@@ -100,16 +104,15 @@ export class SystemRunner {
     private readonly wallet: WalletManager,
     private readonly economy: RoomEconomyManager,
     private readonly config: IGameBalanceConfig,
-    spawnSystem: SpawnSystem,
-  ) {
-    this.spawnSystem = spawnSystem;
-  }
+    private readonly spawnSystem: SpawnSystem,
+    private readonly reservePool: IReservePoolProvider,
+  ) {}
 
   /**
    * Execute one full simulation tick.
    * Returns events for the room to broadcast + audit data.
    */
-  tick(activePlayers: readonly string[]): TickResult {
+  tick(activePlayers: readonly string[]): SystemRunnerResult {
     const delta = FIXED_TIMESTEP_SEC;
     const newProjectiles: NewProjectileInfo[] = [];
     const rejectedShots: RejectedShot[] = [];
@@ -142,10 +145,10 @@ export class SystemRunner {
     this.spawnSystem.update(this.world);
 
     // ─── 4. Movement: Advance space objects along curves ───
-    movementSystem(this.world, FIXED_TIMESTEP_MS);
+    movementSystem(this.world, FIXED_TIMESTEP_MS, this.reservePool);
 
     // ─── 5. Projectile: Move lasers + ricochets ───
-    projectileSystem(this.world, delta);
+    projectileSystem(this.world, delta, this.reservePool);
 
     // ─── 6. Collision: Detect hits ───
     const collisions: CollisionEvent[] = collisionSystem(this.world);
@@ -158,6 +161,7 @@ export class SystemRunner {
       this.rng,
       this.wallet,
       this.economy,
+      this.reservePool,
     );
 
     // ─── 7.5. Feature Spawns: Create hazard entities from feature target kills ───

@@ -6,7 +6,7 @@
 // turret recoil + jackpot popup + coin shower audio sync.
 // ─────────────────────────────────────────────────────────────
 
-import { BET_TIERS, GAME_WIDTH, GAME_HEIGHT, SEAT_COORDINATES, SEAT_COLORS, SPREAD_ANGLE_OFFSET } from '@space-shooter/shared';
+import { BET_TIERS, GAME_WIDTH, GAME_HEIGHT, SEAT_COORDINATES, SEAT_COLORS, SPREAD_ANGLE_OFFSET, MAX_BOUNCES } from '@space-shooter/shared';
 import type { WeaponType } from '@space-shooter/shared';
 import { GameClient } from './network/ColyseusClient.js';
 import type {
@@ -14,24 +14,24 @@ import type {
   FeatureActivatedEventData, FeatureVaultRouletteData, FeatureEmpChainData,
   FeatureDrillBounceData, FeatureEndedData,
 } from './network/ColyseusClient.js';
-import { GameRenderer } from './rendering/GameRenderer.js';
+import * as Phaser from 'phaser';
+import { BootScene } from './scenes/BootScene.js';
+import { MainScene } from './rendering/MainScene.js';
 import { InputHandler } from './input/InputHandler.js';
 import { HUDManager } from './ui/HUDManager.js';
 import { AudioManager } from './audio/AudioManager.js';
-import { FXManager } from './fx/FXManager.js';
-
 // ─── Configuration ───
 const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? 'ws://localhost:2567';
 const FIRE_COOLDOWN_MS = 150;
 const POINTER_MOVE_THRESHOLD = 0.05; // radians
 
 // ─── State ───
-let renderer: GameRenderer;
+let phaserGame: Phaser.Game;
+let mainScene: MainScene;
 let input: InputHandler;
 let client: GameClient;
 let hud: HUDManager;
 let audio: AudioManager;
-let fxManager: FXManager;
 let latestState: GameRoomStateSnapshot | null = null;
 let localTurretX = 0;
 let localTurretY = 0;
@@ -55,13 +55,41 @@ async function boot(): Promise<void> {
   console.log('[SpaceShooter] Booting...');
 
   // 1. Renderer + FX
-  renderer = new GameRenderer('game-container');
-  fxManager = new FXManager();
-  renderer.fxManager = fxManager;
+  // 1. Phaser + FX
+  const config: Phaser.Types.Core.GameConfig = {
+    type: Phaser.WEBGL,
+    width: GAME_WIDTH,
+    height: GAME_HEIGHT,
+    parent: 'game-container',
+    backgroundColor: '#0a0a1a',
+    scene: [BootScene, MainScene],
+    physics: {
+      default: 'arcade',
+      arcade: {
+        gravity: { x: 0, y: 0 },
+        debug: false,
+      },
+    },
+    banner: false,
+    disableContextMenu: true
+  };
+  
+  phaserGame = new Phaser.Game(config);
+  
+  // Wait for the scene to boot
+  await new Promise<void>(resolve => {
+      const wait = setInterval(() => {
+          mainScene = phaserGame.scene.getScene('MainScene') as MainScene;
+          if (mainScene && mainScene.sys && mainScene.sys.isActive()) {
+              clearInterval(wait);
+              resolve();
+          }
+      }, 50);
+  });
 
   // Coin shower → audio sync: play coin sound when coins reach local turret
-  renderer.onLocalCoinsArrived = (_payout: number) => {
-    audio.playCoinCollect();
+  mainScene.onLocalCoinsArrived = (_payout: number) => {
+    audio.playCoinCollect(localTurretX);
   };
 
   // 2. Audio
@@ -78,22 +106,31 @@ async function boot(): Promise<void> {
     console.log(`[SpaceShooter] Bet changed to $${currentBet}`);
   };
 
-  // Weapon switching from InputHandler
+  // Weapon switching from InputHandler (Keyboard Q, W, E)
   input.onWeaponChange = (weaponType: WeaponType) => {
     currentWeapon = weaponType;
     client.switchWeapon(weaponType);
-    console.log(`[SpaceShooter] Weapon switched to: ${weaponType}`);
+    hud.selectWeapon(weaponType, true); // Sync UI visual, skip callback
+    console.log(`[SpaceShooter] Weapon switched via KB to: ${weaponType}`);
+  };
+
+  // Weapon switching from HUD (Mouse Click)
+  hud.onWeaponChange = (weaponType: WeaponType) => {
+    currentWeapon = weaponType;
+    client.switchWeapon(weaponType);
+    input.setWeaponType(weaponType); // Sync InputHandler state
+    console.log(`[SpaceShooter] Weapon switched via UI to: ${weaponType}`);
   };
 
   // 5. Network
   client = new GameClient(SERVER_URL, {
     onJoined: (sessionId: string) => {
       console.log(`[SpaceShooter] Joined as ${sessionId}`);
-      renderer.localSessionId = sessionId;
+      if (mainScene) mainScene.localSessionId = sessionId;
     },
     onStateChange: (state: GameRoomStateSnapshot) => {
       latestState = state;
-      renderer.updateState(state);
+      if (mainScene) mainScene.setRoomState(state);
 
       const localPlayer = state.players.get(client.sessionId);
       if (localPlayer) {
@@ -111,30 +148,41 @@ async function boot(): Promise<void> {
       const killY = obj?.y ?? GAME_HEIGHT / 2;
 
       // ─── Payout notification ───
-      renderer.addPayoutNotification(event, killX, killY);
+      // Phaser MainScene replaces the old renderer call
+      mainScene.addPayoutNotification(killX, killY, event.payout, event.multiplier, event.seatIndex, event.objectType);
 
-      // ─── Explosion FX ───
+      // ─── Explosion FX (tiered by multiplier) ───
       const objColor = SEAT_COLORS[event.seatIndex] ?? '#FF6347';
-      fxManager.playExplosion(killX, killY, event.multiplier, objColor);
+      if (event.multiplier >= 25) {
+        // Boss-tier: multi-stage death sequence
+        if (mainScene) mainScene.fxManager.playBossKill(killX, killY, event.multiplier, objColor);
+      } else if (event.multiplier >= 8) {
+        // Elite-tier: glow pulse + moderate burst
+        if (mainScene) mainScene.fxManager.playEliteKill(killX, killY, event.multiplier, objColor);
+      } else {
+        // Standard: quick pop
+        if (mainScene) mainScene.fxManager.playExplosion(killX, killY, event.multiplier, objColor);
+      }
 
       // ─── Audio: explosion tier ───
-      audio.playExplosion(event.multiplier);
+      audio.playExplosion(event.multiplier, killX);
 
-      // ─── Screen shake (multiplier-based tier) ───
-      renderer.applyShakeForMultiplier(event.multiplier);
+      // ─── Screen shake (multiplier-based tier, boss FX handles its own shake) ───
+      if (event.multiplier < 25 && mainScene) mainScene.applyShake(event.multiplier);
 
       // ─── Jackpot popup for 50x+ ───
       if (event.multiplier >= 50) {
         const seatColor = SEAT_COLORS[event.seatIndex] ?? '#FFD700';
-        renderer.showJackpotPopup(event.multiplier, seatColor);
-        audio.playJackpotSiren();
+        // mainScene.showJackpotPopup(event.multiplier, seatColor); // TODO
+        audio.playJackpotSiren(killX);
+        audio.duckMusic(4000);
       }
 
       // ─── Coin shower → winning turret ───
       const winnerCoords = SEAT_COORDINATES[event.seatIndex];
       if (winnerCoords) {
         const isLocal = event.playerId === client.sessionId;
-        renderer.addCoinShower(
+        mainScene.addCoinShower(
           killX, killY,
           winnerCoords.x, winnerCoords.y,
           event.seatIndex,
@@ -152,9 +200,10 @@ async function boot(): Promise<void> {
     },
     onRemoteShoot: (seatIndex: number, angle: number, _lockedTargetId?: string) => {
       // Ghost laser + audio + recoil for remote player
-      renderer.addGhostLaser(seatIndex, angle);
-      renderer.triggerRecoil(seatIndex, angle);
-      audio.playShoot();
+      // renderer.addGhostLaser(seatIndex, angle); // TODO
+      // renderer.triggerRecoil(seatIndex, angle); // TODO
+      const coords = SEAT_COORDINATES[seatIndex];
+      audio.playShoot(coords?.x);
     },
     onError: (error: Error) => {
       console.error('[SpaceShooter] Connection error:', error);
@@ -163,15 +212,17 @@ async function boot(): Promise<void> {
       console.log(`[SpaceShooter] ☄️ Supernova blast! +$${event.totalPayout} (${event.destroyedTargetIds.length} targets)`);
 
       // Supernova blast FX
-      fxManager.playSupernovaBlast(event.x, event.y);
-      renderer.applyShakeForMultiplier(50); // Massive screen shake
-      audio.playExplosion(50); // Big explosion sound
+      if (mainScene) mainScene.fxManager.playSupernovaBlast(event.x, event.y);
+      if (mainScene) mainScene.applyShake(50); // Massive screen shake
+      audio.playSupernovaBlast(event.x);
+      audio.playExplosion(50, event.x);
+      audio.duckMusic(3000);
 
       // Coin shower for the aggregate payout
       const winnerCoords = SEAT_COORDINATES[event.seatIndex];
       if (winnerCoords) {
         const isLocal = event.playerId === client.sessionId;
-        renderer.addCoinShower(
+        mainScene.addCoinShower(
           event.x, event.y,
           winnerCoords.x, winnerCoords.y,
           event.seatIndex,
@@ -181,9 +232,9 @@ async function boot(): Promise<void> {
       }
     },
     onChainHit: (event: ChainHitEventData) => {
-      renderer.addLightningTrail(event.fromX, event.fromY, event.toX, event.toY, event.seatIndex);
-      fxManager.playImpactSpark(event.toX, event.toY, '#00CCFF');
-      audio.playShoot();
+      // mainScene.addLightningTrail(event.fromX, event.fromY, event.toX, event.toY, event.seatIndex); // TODO
+      if (mainScene) mainScene.fxManager.playImpactSpark(event.toX, event.toY, '#00CCFF');
+      audio.playShoot(event.toX);
     },
 
     // ─── Feature Target Event Handlers ───
@@ -192,25 +243,30 @@ async function boot(): Promise<void> {
       console.log(`[SpaceShooter] 🎯 Feature target activated: ${event.hazardType} by player ${event.playerId}`);
       switch (event.hazardType) {
         case 'blackhole':
-          fxManager.playBlackholeVortex(event.x, event.y);
-          renderer.applyShakeForMultiplier(30);
+          if (mainScene) mainScene.fxManager.playBlackholeVortex(event.x, event.y);
+          if (mainScene) mainScene.applyShake(30);
+          audio.playBlackholeActivate(event.x);
           break;
         case 'drill':
-          fxManager.playDrillTrail(event.x, event.y, 0);
-          renderer.applyShakeForMultiplier(20);
+          if (mainScene) mainScene.fxManager.playDrillTrail(event.x, event.y, 0);
+          if (mainScene) mainScene.applyShake(20);
+          audio.playDrillLaunch(event.x);
           break;
         case 'emp':
-          renderer.applyShakeForMultiplier(40);
+          if (mainScene) mainScene.applyShake(40);
+          audio.playEmpDischarge(event.x);
           break;
         case 'orbital_laser':
-          renderer.applyShakeForMultiplier(25);
+          if (mainScene) mainScene.fxManager.playOrbitalLaser(event.x, event.y);
+          audio.playOrbitalLaser(event.x);
           break;
         case 'vault':
-          fxManager.playVaultRoulette(event.x, event.y);
-          renderer.applyShakeForMultiplier(35);
+          if (mainScene) mainScene.fxManager.playVaultRoulette(event.x, event.y);
+          if (mainScene) mainScene.applyShake(35);
+          audio.playVaultOpen(event.x);
           break;
       }
-      audio.playExplosion(20);
+      audio.duckMusic(2500);
     },
 
     onFeatureVaultRoulette: (event: FeatureVaultRouletteData) => {
@@ -227,13 +283,13 @@ async function boot(): Promise<void> {
       for (const victimId of event.victimIds) {
         const obj = latestState?.spaceObjects.get(victimId);
         if (obj) {
-          fxManager.playEmpChain(event.sourceX, event.sourceY, obj.x, obj.y);
+          if (mainScene) mainScene.fxManager.playEmpChain(event.sourceX, event.sourceY, obj.x, obj.y);
         }
       }
     },
 
     onFeatureDrillBounce: (event: FeatureDrillBounceData) => {
-      fxManager.playDrillTrail(event.x, event.y, event.angle);
+      if (mainScene) mainScene.fxManager.playDrillTrail(event.x, event.y, event.angle);
       audio.playShoot();
     },
 
@@ -242,8 +298,39 @@ async function boot(): Promise<void> {
     },
   });
 
-  await client.joinRoom();
+  try {
+    await client.joinRoom();
+    console.log('[CLIENT] Connected to room');
+  } catch (err) {
+    console.error('[SpaceShooter] connection aborted', err);
+    // TODO: Display connection error in HTML over the Phaser canvas instead of drawing to context
+    const overlay = document.createElement('div');
+    overlay.style.position = 'absolute';
+    overlay.style.top = '0';
+    overlay.style.left = '0';
+    overlay.style.width = '100%';
+    overlay.style.height = '100%';
+    overlay.style.backgroundColor = 'rgba(0,0,0,0.9)';
+    overlay.style.color = '#ff3333';
+    overlay.style.display = 'flex';
+    overlay.style.flexDirection = 'column';
+    overlay.style.justifyContent = 'center';
+    overlay.style.alignItems = 'center';
+    overlay.style.zIndex = '9999';
+    overlay.innerHTML = `
+      <h1 style="font-family: Inter, sans-serif; font-size: 48px; margin-bottom: 20px;">SERVER CONNECTION FAILED</h1>
+      <p style="font-family: Inter, sans-serif; font-size: 24px;">Check Console (F12) or DB Connection</p>
+    `;
+    document.getElementById('game-container')?.appendChild(overlay);
+    return; // Abort further initialization
+  }
 
+  // Remove the HTML loading screen overlay
+  const loadingScreen = document.getElementById('loading-screen');
+  if (loadingScreen) {
+      loadingScreen.style.display = 'none';
+  }
+  
   // 6. Bet keyboard shortcuts
   setupBetControls();
 
@@ -285,21 +372,21 @@ function gameLoop(timestamp: number): void {
     lastFireTime = now;
 
     // Client-side prediction: ghost laser(s) + recoil + audio
+    // Client-side prediction: ghost laser(s) + audio
     if (currentWeapon === 'spread') {
-      // Spread: 3 predicted ghost lasers
       const offsets = [-SPREAD_ANGLE_OFFSET, 0, SPREAD_ANGLE_OFFSET];
       for (const offset of offsets) {
-        renderer.addPredictedLaser(localTurretX, localTurretY, aimAngle + offset, localSeatIndex);
+        mainScene.addGhostLaser(localTurretX, localTurretY, aimAngle + offset, MAX_BOUNCES, SEAT_COLORS[localSeatIndex]!, currentWeapon);
       }
     } else {
-      renderer.addPredictedLaser(localTurretX, localTurretY, aimAngle, localSeatIndex);
+        mainScene.addGhostLaser(localTurretX, localTurretY, aimAngle, MAX_BOUNCES, SEAT_COLORS[localSeatIndex]!, currentWeapon);
     }
-    renderer.triggerRecoil(localSeatIndex, aimAngle);
-    audio.playShoot();
+    // renderer.triggerRecoil(localSeatIndex, aimAngle);
+    audio.playShoot(localTurretX, currentWeapon);
   }
 
-  // Render
-  renderer.render(aimAngle, localTurretX, localTurretY, deltaSec, lockedTarget);
+  // Pass latest input state down to the Phaser scene (which calculates its own delta loop via update())
+  // renderer.render(aimAngle, localTurretX, localTurretY, deltaSec, lockedTarget);
 
   requestAnimationFrame(gameLoop);
 }
@@ -338,8 +425,4 @@ function setupBetControls(): void {
 }
 
 // ─── Bootstrap ───
-try {
-  await boot();
-} catch (err) {
-  console.error(err);
-}
+boot().catch(console.error);

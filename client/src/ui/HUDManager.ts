@@ -9,6 +9,7 @@
 // ─────────────────────────────────────────────────────────────
 
 import { BET_TIERS, DEFAULT_BET } from '@space-shooter/shared';
+import type { WeaponType } from '@space-shooter/shared';
 
 /** How long the credit counter roll animation lasts (ms) */
 const ROLL_DURATION_MS = 600;
@@ -34,9 +35,13 @@ export class HUDManager {
   private rollStartValue = 0;
 
   private currentTierIndex = 0;
+  private currentWeapon: WeaponType = 'standard';
+  private readonly weaponBtns: Record<string, HTMLElement> = {};
 
   /** Callback fired when player changes bet tier */
   public onBetChange: ((newBet: number) => void) | null = null;
+  /** Callback fired when player changes weapon via HUD */
+  public onWeaponChange: ((weaponRawType: WeaponType) => void) | null = null;
 
   constructor(containerId: string) {
     const parent = document.getElementById(containerId);
@@ -88,6 +93,23 @@ export class HUDManager {
     betPanel.appendChild(betLabel);
     betPanel.appendChild(betRow);
     this.container.appendChild(betPanel);
+
+    // ─── Weapon Panel (bottom-right) ───
+    const weaponPanel = this.createPanel('hud-weapon-panel', 'bottom: 24px; right: 24px; pointer-events: auto;');
+    weaponPanel.style.display = 'flex';
+    weaponPanel.style.gap = '8px';
+
+    this.weaponBtns['standard'] = this.createWeaponButton('⚡', 'standard', () => this.selectWeapon('standard'));
+    this.weaponBtns['spread'] = this.createWeaponButton('💢', 'spread', () => this.selectWeapon('spread'));
+    this.weaponBtns['lightning'] = this.createWeaponButton('🌩️', 'lightning', () => this.selectWeapon('lightning'));
+
+    weaponPanel.appendChild(this.weaponBtns['standard']);
+    weaponPanel.appendChild(this.weaponBtns['spread']);
+    weaponPanel.appendChild(this.weaponBtns['lightning']);
+    this.container.appendChild(weaponPanel);
+
+    // Initialize weapon selection visual
+    this.selectWeapon('standard', true);
 
     // ─── Flash Overlay (insufficient funds) ───
     this.flashOverlay = document.createElement('div');
@@ -222,6 +244,56 @@ export class HUDManager {
     setTimeout(() => { this.betEl.style.transform = 'scale(1)'; }, 120);
 
     this.onBetChange?.(newBet);
+  }
+
+  private createWeaponButton(emoji: string, weaponType: string, onClick: () => void): HTMLElement {
+    const btn = document.createElement('button');
+    btn.innerHTML = `${emoji}<br><span style="font-size:10px;color:#aaa">${weaponType.toUpperCase()}</span>`;
+    btn.style.cssText = `
+      width: 70px; height: 50px; border-radius: 8px;
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.3);
+      color: #fff; font-size: 18px; font-weight: 700;
+      cursor: pointer; transition: all 0.15s;
+    `;
+    btn.addEventListener('mouseenter', () => {
+      if (this.currentWeapon !== weaponType) btn.style.background = 'rgba(255,255,255,0.2)';
+    });
+    btn.addEventListener('mouseleave', () => {
+      if (this.currentWeapon !== weaponType) btn.style.background = 'rgba(255,255,255,0.1)';
+    });
+    btn.addEventListener('mousedown', () => { btn.style.transform = 'scale(0.95)'; });
+    btn.addEventListener('mouseup', () => { btn.style.transform = 'scale(1)'; });
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      onClick();
+    });
+    return btn;
+  }
+
+  /** Called when user clicks a weapon HUD button, or when InputHandler syncs a keyboard shortcut */
+  public selectWeapon(weaponType: WeaponType, skipCallback = false): void {
+    if (this.currentWeapon === weaponType && !skipCallback) return;
+    this.currentWeapon = weaponType;
+
+    // Reset visuals
+    Object.values(this.weaponBtns).forEach(btn => {
+      btn.style.background = 'rgba(255,255,255,0.1)';
+      btn.style.border = '1px solid rgba(255,255,255,0.3)';
+      btn.style.boxShadow = 'none';
+    });
+
+    // Highlight selected
+    const activeBtn = this.weaponBtns[weaponType];
+    if (activeBtn) {
+      activeBtn.style.background = 'rgba(0, 255, 204, 0.2)';
+      activeBtn.style.border = '2px solid #00ffcc';
+      activeBtn.style.boxShadow = '0 0 10px rgba(0, 255, 204, 0.5)';
+    }
+
+    if (!skipCallback) {
+      this.onWeaponChange?.(weaponType);
+    }
   }
 
   /** Animate the credit counter rolling toward targetCredits */

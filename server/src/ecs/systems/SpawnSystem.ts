@@ -14,6 +14,7 @@ import {
   SPAWN_MIN_INTERVAL_TICKS,
   SPAWN_MAX_INTERVAL_TICKS,
   SpaceObjectType,
+  FEATURE_TARGET_TYPES,
 } from '@space-shooter/shared';
 import type { World } from '../World.js';
 import type { IRngService } from '../../services/CsprngService.js';
@@ -128,10 +129,13 @@ export class SpawnSystem {
     so.isDead = false;
     world.spaceObjects.set(entityId, so);
 
+    const isFeature = FEATURE_TARGET_TYPES.has(type as any);
+    const finalDuration = isFeature ? request.duration * 2.5 : request.duration;
+
     world.paths.set(entityId, {
       pathType: request.pathType,
       controlPoints: request.controlPoints,
-      duration: request.duration,
+      duration: finalDuration,
       timeAlive: 0,
       offset: request.offset,
       sineAmplitude: request.sineAmplitude,

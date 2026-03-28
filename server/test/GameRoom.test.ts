@@ -151,7 +151,7 @@ describe('RtpEngine (4-Layer Dynamic Volatility)', () => {
     engine.addPlayer('p1');
 
     const result = engine.evaluateHit(
-      SpaceObjectType.ASTEROID, 10, 'p1', 1, 0,
+      SpaceObjectType.ASTEROID, 10, 'p1', 1, 0, { globalReservePool: 0 }
     );
 
     assert.ok('destroyed' in result);
@@ -173,7 +173,7 @@ describe('RtpEngine (4-Layer Dynamic Volatility)', () => {
     engine.addPlayer('p1');
 
     const result = engine.evaluateHit(
-      SpaceObjectType.COSMIC_WHALE, 1, 'p1', 1, 0,
+      SpaceObjectType.COSMIC_WHALE, 1, 'p1', 1, 0, { globalReservePool: 0 }
     );
 
     // BaseChance = (1/100) × 0.98 = 0.0098
@@ -188,7 +188,7 @@ describe('RtpEngine (4-Layer Dynamic Volatility)', () => {
 
     // Asteroid with massive piñata absorption → threshold would exceed 0.85
     const result = engine.evaluateHit(
-      SpaceObjectType.ASTEROID, 1, 'p1', 1, 999999,
+      SpaceObjectType.ASTEROID, 1, 'p1', 1, 999999, { globalReservePool: 0 }
     );
 
     assert.ok(result.finalThreshold <= GAME_BALANCE_CONFIG.maxSuccessThreshold,
@@ -209,12 +209,12 @@ describe('RtpEngine (4-Layer Dynamic Volatility)', () => {
     assert.ok(hotSeatId === 'p1' || hotSeatId === 'p2');
 
     // Evaluate for the hot-seat player
-    const hotResult = engine.evaluateHit(SpaceObjectType.ASTEROID, 1, hotSeatId as string, 1, 0);
+    const hotResult = engine.evaluateHit(SpaceObjectType.ASTEROID, 1, hotSeatId as string, 1, 0, { globalReservePool: 0 });
     assert.strictEqual(hotResult.modifiers.hotSeatModifier, GAME_BALANCE_CONFIG.hotSeat.boostMultiplier);
 
     // Evaluate for a non-hot-seat player
     const otherId = hotSeatId === 'p1' ? 'p2' : 'p1';
-    const otherResult = engine.evaluateHit(SpaceObjectType.ASTEROID, 1, otherId, 2, 0);
+    const otherResult = engine.evaluateHit(SpaceObjectType.ASTEROID, 1, otherId, 2, 0, { globalReservePool: 0 });
     assert.strictEqual(otherResult.modifiers.hotSeatModifier, GAME_BALANCE_CONFIG.hotSeat.penaltyMultiplier);
   });
 
@@ -225,16 +225,16 @@ describe('RtpEngine (4-Layer Dynamic Volatility)', () => {
     engine.addPlayer('p1');
 
     // No absorption → modifier = 1.0
-    const baseResult = engine.evaluateHit(SpaceObjectType.ASTEROID, 10, 'p1', 1, 0);
+    const baseResult = engine.evaluateHit(SpaceObjectType.ASTEROID, 10, 'p1', 1, 0, { globalReservePool: 0 });
     assert.strictEqual(baseResult.modifiers.pinataModifier, 1);
 
     // Some absorption → modifier > 1.0
-    const absorbedResult = engine.evaluateHit(SpaceObjectType.ASTEROID, 10, 'p1', 1, 15);
+    const absorbedResult = engine.evaluateHit(SpaceObjectType.ASTEROID, 10, 'p1', 1, 15, { globalReservePool: 0 });
     assert.ok(absorbedResult.modifiers.pinataModifier > 1,
       `Piñata modifier should be > 1.0, got ${absorbedResult.modifiers.pinataModifier}`);
 
     // Heavy absorption → modifier approaches max
-    const heavyResult = engine.evaluateHit(SpaceObjectType.ASTEROID, 10, 'p1', 1, 100);
+    const heavyResult = engine.evaluateHit(SpaceObjectType.ASTEROID, 10, 'p1', 1, 100, { globalReservePool: 0 });
     assert.ok(heavyResult.modifiers.pinataModifier > absorbedResult.modifiers.pinataModifier,
       'More absorption should mean higher modifier');
     assert.ok(heavyResult.modifiers.pinataModifier <= GAME_BALANCE_CONFIG.pinata.maxModifier,
@@ -253,11 +253,11 @@ describe('RtpEngine (4-Layer Dynamic Volatility)', () => {
     // we test the modifier logic directly)
     for (let i = 0; i < GAME_BALANCE_CONFIG.pity.missThreshold; i++) {
       // Each evaluateHit that results in !destroyed increments misses
-      engine.evaluateHit(SpaceObjectType.COSMIC_WHALE, 1, 'p1', 1, 0);
+      engine.evaluateHit(SpaceObjectType.COSMIC_WHALE, 1, 'p1', 1, 0, { globalReservePool: 0 });
     }
 
     // After many misses, pity should kick in for low-tier targets
-    const result = engine.evaluateHit(SpaceObjectType.ASTEROID, 1, 'p1', 1, 0);
+    const result = engine.evaluateHit(SpaceObjectType.ASTEROID, 1, 'p1', 1, 0, { globalReservePool: 0 });
 
     // The pity modifier applies only if consecutiveMisses >= threshold
     const misses = engine.getConsecutiveMisses('p1');
@@ -275,11 +275,11 @@ describe('RtpEngine (4-Layer Dynamic Volatility)', () => {
 
     // Force consecutive misses (Cosmic Whale has very low base chance)
     for (let i = 0; i < 50; i++) {
-      engine.evaluateHit(SpaceObjectType.COSMIC_WHALE, 1, 'p1', 1, 0);
+      engine.evaluateHit(SpaceObjectType.COSMIC_WHALE, 1, 'p1', 1, 0, { globalReservePool: 0 });
     }
 
     // Cosmic Whale (100x multiplier) > appliesToMaxMultiplier (10x)
-    const result = engine.evaluateHit(SpaceObjectType.COSMIC_WHALE, 1, 'p1', 1, 0);
+    const result = engine.evaluateHit(SpaceObjectType.COSMIC_WHALE, 1, 'p1', 1, 0, { globalReservePool: 0 });
     assert.strictEqual(result.modifiers.pityModifier, 1,
       'Pity should NOT apply to high-multiplier targets');
   });
@@ -292,7 +292,7 @@ describe('RtpEngine (4-Layer Dynamic Volatility)', () => {
 
     // Force some misses
     for (let i = 0; i < 10; i++) {
-      engine.evaluateHit(SpaceObjectType.COSMIC_WHALE, 1, 'p1', 1, 0);
+      engine.evaluateHit(SpaceObjectType.COSMIC_WHALE, 1, 'p1', 1, 0, { globalReservePool: 0 });
     }
     const missesBeforeKill = engine.getConsecutiveMisses('p1');
     assert.ok(missesBeforeKill > 0, 'Should have some misses');
@@ -301,7 +301,7 @@ describe('RtpEngine (4-Layer Dynamic Volatility)', () => {
     // Using Asteroid with absorbedCredits very high → clamped threshold → likely kill
     let killed = false;
     for (let i = 0; i < 100 && !killed; i++) {
-      const result = engine.evaluateHit(SpaceObjectType.ASTEROID, 1, 'p1', 1, 10000);
+      const result = engine.evaluateHit(SpaceObjectType.ASTEROID, 1, 'p1', 1, 10000, { globalReservePool: 0 });
       if (result.destroyed) {
         killed = true;
       }
@@ -336,7 +336,7 @@ describe('RtpEngine (4-Layer Dynamic Volatility)', () => {
     for (let i = 0; i < iterations; i++) {
       const bet = 1;
       totalBet += bet;
-      const result = engine.evaluateHit(SpaceObjectType.ASTEROID, bet, 'p1', 1, 0);
+      const result = engine.evaluateHit(SpaceObjectType.ASTEROID, bet, 'p1', 1, 0, { globalReservePool: 0 });
       totalPayout += result.payout;
     }
 
@@ -476,7 +476,7 @@ describe('MovementSystem', () => {
     });
 
     // Advance 500ms = t=0.5 → x should be 50
-    movementSystem(world, 500);
+    movementSystem(world, 500, { globalReservePool: 0 });
 
     const pos = world.positions.get(e)!;
     assert.ok(Math.abs(pos.x - 50) < 1, `Expected x ≈ 50, got ${pos.x}`);
@@ -499,7 +499,7 @@ describe('MovementSystem', () => {
     });
 
     // Advance past duration
-    movementSystem(world, 1100);
+    movementSystem(world, 1100, { globalReservePool: 0 });
     assert.ok(world.pendingDestroy.has(e), 'Entity should be tagged for destroy');
   });
 });
@@ -523,7 +523,7 @@ describe('ProjectileSystem', () => {
       hitTargetIds: new Set(),
     });
 
-    projectileSystem(world, 0.1);
+    projectileSystem(world, 0.1, { globalReservePool: 0 });
     const pos = world.positions.get(e)!;
     assert.ok(pos.x > 500, `Should move right: ${pos.x}`);
   });
@@ -544,7 +544,7 @@ describe('ProjectileSystem', () => {
       hitTargetIds: new Set(),
     });
 
-    projectileSystem(world, 0.1);
+    projectileSystem(world, 0.1, { globalReservePool: 0 });
     const proj = world.projectiles.get(e)!;
     assert.ok(proj.bouncesRemaining === 9, 'Should have bounced');
   });
@@ -587,7 +587,7 @@ describe('DestroySystem (4-Layer)', () => {
       { projectileId: proj2, objectId: obj, projectileOwnerId: 'p2', betAmount: 10 },
     ];
 
-    const { payouts } = destroySystem(world, collisions, engine, rng, wallet, economy);
+    const { payouts } = destroySystem(world, collisions, engine, rng, wallet, economy, { globalReservePool: 0 });
 
     // At most ONE payout (first-kill wins)
     assert.ok(payouts.length <= 1, `Expected ≤ 1 payload, got ${payouts.length}`);
@@ -627,7 +627,7 @@ describe('DestroySystem (4-Layer)', () => {
       { projectileId: proj, objectId: obj, projectileOwnerId: 'p1', betAmount: 50 },
     ];
 
-    const { payouts } = destroySystem(world, collisions, engine, rng, wallet, economy);
+    const { payouts } = destroySystem(world, collisions, engine, rng, wallet, economy, { globalReservePool: 0 });
 
     const spaceObj = world.spaceObjects.get(obj)!;
     if (payouts.length === 0) {
@@ -661,7 +661,7 @@ describe('DestroySystem (4-Layer)', () => {
       { projectileId: proj, objectId: obj, projectileOwnerId: 'p1', betAmount: 5 },
     ];
 
-    const { resolutions } = destroySystem(world, collisions, engine, rng, wallet, economy);
+    const { resolutions } = destroySystem(world, collisions, engine, rng, wallet, economy, { globalReservePool: 0 });
 
     assert.strictEqual(resolutions.length, 1);
     assert.strictEqual(resolutions[0].playerId, 'p1');
@@ -779,7 +779,7 @@ describe('SystemRunner (with Economy)', () => {
     const engine = new RtpEngine(rng, economy, GAME_BALANCE_CONFIG);
     engine.addPlayer('p1');
     const spawnSystem = new SpawnSystem(rng, GAME_BALANCE_CONFIG);
-    const runner = new SystemRunner(world, engine, rng, wallet, economy, GAME_BALANCE_CONFIG, spawnSystem);
+    const runner = new SystemRunner(world, engine, rng, wallet, economy, GAME_BALANCE_CONFIG, spawnSystem, { globalReservePool: 0 });
 
     // Queue a fire intent (bet must be a valid tier)
     const intentId = world.createEntity();

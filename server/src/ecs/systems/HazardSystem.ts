@@ -82,6 +82,7 @@ export interface HazardTickResult {
     payout: number;
     multiplier: number;
     betAmount: number;
+    hazardType?: string;
   }>;
 }
 
@@ -326,6 +327,7 @@ function killTargetForHazard(
     payout,
     multiplier: objConfig.multiplier,
     betAmount: hazard.lockedBetAmount,
+    hazardType: hazard.hazardType,
   });
 }
 

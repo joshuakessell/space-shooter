@@ -57,6 +57,13 @@ interface ViolationTracker {
 export class GameRoom extends Room<{ state: GameRoomState }> {
   maxClients = MAX_PLAYERS;
 
+  /** 
+   * Global economy pool to recycle lost credits (missed shots + despawned targets).
+   * Used by RtpEngine to subsidize future wins.
+   * Server-side only (NOT in Colyseus schema).
+   */
+  public globalReservePool = 0;
+
   // ─── ECS + Services ───
   private world!: World;
   private systemRunner!: SystemRunner;
@@ -126,7 +133,10 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
       this.economy,
       GAME_BALANCE_CONFIG,
       spawnSystem,
+      this, // Pass GameRoom as the reserve pool provider
     );
+
+    console.log("[GameRoom] Room Created and Ticking");
 
     // Start the fixed-timestep simulation loop
     this.simulationInterval = setInterval(() => {
@@ -149,26 +159,36 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
   }
 
   async onAuth(client: Client, options: { token?: string }): Promise<any> {
+    console.log(`[GameRoom] onAuth called for client ${client.sessionId} with options:`, options);
     let user;
     const token = options.token;
 
-    if (token) {
-      user = await prisma.user.findUnique({ where: { token } });
-    }
+    try {
+      if (token) {
+        user = await prisma.user.findUnique({ where: { token } });
+      }
 
-    if (!user) {
-      // Create guest account
-      const newToken = randomUUID();
-      user = await prisma.user.create({
-        data: {
-          username: `Guest-${Math.floor(Math.random() * 10000)}`,
-          token: newToken,
-          balance: STARTING_CREDITS,
-        }
-      });
-      console.log(`[GameRoom] Created new guest user ${user.id} with token ${user.token}`);
-      // Usually, in a real REST API, the client fetches the token first, but Colyseus
-      // offers a way to send it via a custom message post-join if needed.
+      if (!user) {
+        // Create guest account
+        const newToken = randomUUID();
+        user = await prisma.user.create({
+          data: {
+            username: `Guest-${Math.floor(Math.random() * 10000)}`,
+            token: newToken,
+            balance: STARTING_CREDITS,
+          }
+        });
+        console.log(`[GameRoom] Created new guest user ${user.id} with token ${user.token}`);
+      }
+    } catch (err) {
+      console.error(`[CRITICAL] Database offline, falling back to guest mode for token ${token || 'none'}`, err);
+      // Failsafe Mock User for local testing when DB is down
+      user = {
+        id: randomUUID(),
+        username: `Offline-${Math.floor(Math.random() * 1000)}`,
+        token: token || randomUUID(),
+        balance: STARTING_CREDITS,
+      };
     }
 
     // Session Lock: prevent double-spending exploit via multiple tabs
@@ -182,6 +202,8 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
   }
 
   onJoin(client: Client, _options: Record<string, unknown>): void {
+    console.log("[GameRoom] Client Joined, assigning turret...");
+    
     // Assign the lowest available seat index
     const seatIndex = this.getAvailableSeat();
     if (seatIndex === -1) {
@@ -514,6 +536,7 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
         objectId: payout.objectId,
         playerId: payout.playerId,
         objectType: payout.objectType,
+        hazardType: (payout as any).hazardType,
         payout: payout.payout,
         multiplier: payout.multiplier,
         seatIndex,
@@ -537,6 +560,7 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
       const seatIndex = this.seats.indexOf(chainHit.projectileOwnerId);
       this.broadcast(SERVER_MESSAGES.CHAIN_HIT, {
         type: SERVER_MESSAGES.CHAIN_HIT,
+        targetType: 'emp_relay',
         projectileOwnerId: chainHit.projectileOwnerId,
         seatIndex,
         fromX: chainHit.fromX,
@@ -553,6 +577,7 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
       const seatIndex = this.seats.indexOf(aoe.playerId);
       this.broadcast(SERVER_MESSAGES.AOE_DESTROYED, {
         type: SERVER_MESSAGES.AOE_DESTROYED,
+        targetType: 'supernova_bomb',
         x: aoe.x,
         y: aoe.y,
         totalPayout: aoe.totalPayout,
@@ -580,6 +605,7 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
         const payout = spawn.betAmount * spawn.vaultMultiplier;
         this.broadcast(SERVER_MESSAGES.FEATURE_VAULT_ROULETTE, {
           type: SERVER_MESSAGES.FEATURE_VAULT_ROULETTE,
+          targetType: 'cosmic_vault',
           playerId: spawn.playerId,
           multiplier: spawn.vaultMultiplier,
           payout,

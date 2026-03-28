@@ -1,14 +1,43 @@
-import { Client, Room } from 'colyseus.js';
+import { Client, Room } from '@colyseus/sdk';
 import { SERVER_MESSAGES, CLIENT_MESSAGES, BET_TIERS } from '@space-shooter/shared';
 
 const BOTS_COUNT = 30;
 const ENDPOINT = process.env.SERVER_URL || 'http://127.0.0.1:2567';
 
 // Global Trackers
-let globalTotalWagered = 0;
-let globalTotalWon = 0;
-let totalShotsFired = 0;
+const MAX_SHOTS = 50000;
+
+const stats = {
+  shotsFired: 0,
+  totalWagered: 0,
+  totalWon: 0,
+  targetsDestroyed: 0
+};
+
+// Track payouts by target type
+const distribution: Record<string, { kills: number, totalPayout: number, maxPayout: number }> = {};
+
 let activeBots = 0;
+let isStopping = false;
+const bots: BotManager[] = [];
+
+function extractWin(msg: any, source: string): { payout: number, targetType: string } {
+  let payout = 0;
+  let targetType = 'unknown';
+
+  if (typeof msg === 'number') {
+    payout = msg;
+  } else {
+    payout = Number(msg?.payout) || Number(msg?.totalPayout) || Number(msg?.amount) || Number(msg?.win) || 0;
+    targetType = String(msg?.targetType || msg?.objectType || msg?.type || msg?.hazardType || 'UNKNOWN').toUpperCase();
+  }
+
+  if (Number.isNaN(payout) || payout === 0) {
+    if (payout !== 0) console.error(`[LOADTEST ERROR] Received NaN from ${source}! Raw payload:`, msg);
+    return { payout: 0, targetType };
+  }
+  return { payout, targetType };
+}
 
 class BotManager {
   private readonly client: Client;
@@ -41,39 +70,101 @@ class BotManager {
 
     this.room.onMessage('objectDestroyed', (message: any) => {
       if (message.playerId === this.room.sessionId) {
-        globalTotalWon += message.payout;
+        this.trackWin(message, 'objectDestroyed');
       }
     });
 
     this.room.onMessage(SERVER_MESSAGES.CHAIN_HIT, (message: any) => {
       if (message.projectileOwnerId === this.room.sessionId) {
-        globalTotalWon += message.payout;
+        this.trackWin(message, SERVER_MESSAGES.CHAIN_HIT);
       }
     });
 
     this.room.onMessage(SERVER_MESSAGES.AOE_DESTROYED, (message: any) => {
       if (message.playerId === this.room.sessionId) {
-        globalTotalWon += message.totalPayout;
+        this.trackWin(message, SERVER_MESSAGES.AOE_DESTROYED);
       }
     });
 
     this.room.onMessage(SERVER_MESSAGES.FEATURE_VAULT_ROULETTE, (message: any) => {
       if (message.playerId === this.room.sessionId) {
-        globalTotalWon += message.payout;
+        this.trackWin(message, SERVER_MESSAGES.FEATURE_VAULT_ROULETTE);
+      }
+    });
+
+    this.room.onMessage('target_destroyed', (message: any) => {
+      if (message.playerId === this.room.sessionId) {
+        this.trackWin(message, 'target_destroyed');
+      }
+    });
+
+    this.room.onMessage('aoe_destroyed', (message: any) => {
+      if (message.playerId === this.room.sessionId) {
+        this.trackWin(message, 'aoe_destroyed');
       }
     });
 
     this.room.onMessage(SERVER_MESSAGES.FEATURE_ENDED, (message: any) => {
       if (message.playerId === this.room.sessionId) {
-        globalTotalWon += message.totalPayout;
+        this.trackWin(message, SERVER_MESSAGES.FEATURE_ENDED);
       }
     });
+
+    // Dummy listeners to clear console warnings
+    this.room.onMessage('remoteShoot', () => {});
+    this.room.onMessage('shotRejected', () => {});
+    
+    // Log feature events
+    this.room.onMessage(SERVER_MESSAGES.FEATURE_ACTIVATED, (message: any) => {
+      // Feature targets don't normally pay out immediately on activation except through budget
+    });
+    this.room.onMessage(SERVER_MESSAGES.FEATURE_EMP_CHAIN, (message: any) => {
+      if (message.playerId === this.room.sessionId) {
+        this.trackWin(message, SERVER_MESSAGES.FEATURE_EMP_CHAIN);
+      }
+    });
+    this.room.onMessage(SERVER_MESSAGES.FEATURE_DRILL_BOUNCE, (message: any) => {
+      if (message.playerId === this.room.sessionId) {
+        this.trackWin(message, SERVER_MESSAGES.FEATURE_DRILL_BOUNCE);
+      }
+    });
+  }
+
+  private trackWin(message: any, source: string) {
+    const { payout, targetType } = extractWin(message, source);
+    if (payout === 0) return;
+
+    stats.totalWon += payout;
+    stats.targetsDestroyed++;
+
+    if (!distribution[targetType]) {
+      distribution[targetType] = { kills: 0, totalPayout: 0, maxPayout: 0 };
+    }
+    distribution[targetType].kills++;
+    distribution[targetType].totalPayout += payout;
+    if (payout > distribution[targetType].maxPayout) {
+      distribution[targetType].maxPayout = payout;
+    }
   }
 
   private startLoop() {
     // Phase 6 rate limit is 200ms
     this.shootInterval = setInterval(() => {
-      const angle = (Math.random() * Math.PI) - (Math.PI / 2); // Random aim upwards
+      if (stats.shotsFired >= MAX_SHOTS) return; // Stop firing
+
+      const player = this.room.state.players.get(this.room.sessionId);
+      if (!player) return;
+
+      const spaceObjects = Array.from(this.room.state.spaceObjects.values());
+      if (spaceObjects.length === 0) {
+        // Pause firing if there are no targets
+        return;
+      }
+
+      // Pick a random target to aim at
+      const target: any = spaceObjects[Math.floor(Math.random() * spaceObjects.length)];
+      const angle = Math.atan2(target.y - player.turretY, target.x - player.turretX);
+
       this.room.send(CLIENT_MESSAGES.POINTER_MOVE, { angle });
       
       const betAmount = BET_TIERS[0]; // 10 credits
@@ -91,8 +182,11 @@ class BotManager {
       if (currentWeapon === 'spread') multiplier = 3;
       if (currentWeapon === 'lightning') multiplier = 5;
       
-      globalTotalWagered += (betAmount * multiplier);
-      totalShotsFired++;
+      const safeBet = Number(betAmount) || 0;
+      const safeMult = Number(multiplier) || 1;
+      
+      stats.totalWagered += (safeBet * safeMult);
+      stats.shotsFired++;
 
     }, 200);
 
@@ -114,8 +208,6 @@ class BotManager {
   }
 }
 
-const bots: BotManager[] = [];
-
 console.log(`Starting ${BOTS_COUNT} headless bots...`);
 
 for (let i = 0; i < BOTS_COUNT; i++) {
@@ -127,18 +219,71 @@ for (let i = 0; i < BOTS_COUNT; i++) {
 }
 
 // Dashboard interval
-setInterval(() => {
+const dashboardInterval = setInterval(() => {
+  if (isStopping) return; // Freeze output while waiting for physics
+
   console.clear();
-  const rtp = globalTotalWagered > 0 ? ((globalTotalWon / globalTotalWagered) * 100).toFixed(2) : '0.00';
+  const rtp = stats.totalWagered > 0 ? ((stats.totalWon / stats.totalWagered) * 100).toFixed(2) : '0.00';
   
   console.log('='.repeat(40));
   console.log('🚀 SPACE SHOOTER RTP VERIFICATION 🚀');
   console.log('='.repeat(40));
   console.log(`Active Bots:     ${activeBots}`);
-  console.log(`Shots Fired:     ${totalShotsFired.toLocaleString()}`);
-  console.log(`Total Wagered:   $${globalTotalWagered.toLocaleString()}`);
-  console.log(`Total Won (Out): $${globalTotalWon.toLocaleString()}`);
+  console.log(`Shots Fired:     ${stats.shotsFired.toLocaleString()} / ${MAX_SHOTS.toLocaleString()}`);
+  console.log(`Total Wagered:   $${(stats.totalWagered / 100).toLocaleString()}`);
+  console.log(`Total Won (Out): $${(stats.totalWon / 100).toLocaleString()}`);
   console.log(`Current RTP:     ${rtp}%`);
   console.log(`Target RTP:      98.00%`);
   console.log('='.repeat(40));
+  
+  if (stats.shotsFired >= MAX_SHOTS) {
+    isStopping = true;
+    clearInterval(dashboardInterval);
+    console.log(`\n${MAX_SHOTS.toLocaleString()} shots reached, waiting 5 seconds for physics to resolve...`);
+    
+    // Shut down firing immediately
+    for (const bot of bots) {
+      if ((bot as any).shootInterval) clearInterval((bot as any).shootInterval);
+      if ((bot as any).weaponInterval) clearInterval((bot as any).weaponInterval);
+    }
+
+    setTimeout(() => {
+      generateFinalReport();
+      process.exit(0);
+    }, 5000);
+  }
 }, 5000);
+
+function generateFinalReport() {
+  const rtp = stats.totalWagered > 0 ? ((stats.totalWon / stats.totalWagered) * 100).toFixed(2) : '0.00';
+  
+  console.log('\n=================================================');
+  console.log(`🚀 SIMULATION COMPLETE (${MAX_SHOTS.toLocaleString()} SHOTS) 🚀`);
+  console.log('=================================================');
+  console.log(`Total Shots:      ${stats.shotsFired.toLocaleString()}`);
+  console.log(`Total Wagered:    $${(stats.totalWagered / 100).toLocaleString()}`);
+  console.log(`Total Won:        $${(stats.totalWon / 100).toLocaleString()}`);
+  console.log(`Actual RTP:       ${rtp}%`);
+  console.log(`Targets Killed:   ${stats.targetsDestroyed.toLocaleString()}\n`);
+  
+  console.log('📊 PAYOUT DISTRIBUTION BY TARGET TYPE');
+  
+  const formattedArray = [];
+  for (const [type, data] of Object.entries(distribution)) {
+    const percentOfRtp = stats.totalWon > 0 ? ((data.totalPayout / stats.totalWon) * 100).toFixed(2) : '0.00';
+    formattedArray.push({
+      "Target Type": type,
+      "Kills": data.kills.toLocaleString(),
+      "Total Paid": `$${(data.totalPayout / 100).toLocaleString()}`,
+      "Max Payout": `$${(data.maxPayout / 100).toLocaleString()}`,
+      "% of RTP": `${percentOfRtp}%`
+    });
+  }
+  
+  // Sort descending by numeric payout (which is stringified in the struct, so we sort by the raw data)
+  const sortedArray = Object.entries(distribution)
+    .sort((a, b) => b[1].totalPayout - a[1].totalPayout)
+    .map(([type]) => formattedArray.find(item => item["Target Type"] === type));
+
+  console.table(sortedArray);
+}

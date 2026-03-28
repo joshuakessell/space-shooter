@@ -73,6 +73,8 @@ function applyHomingSteering(
   return true;
 }
 
+import type { IReservePoolProvider } from './SystemRunner.js';
+
 /**
  * Moves all active projectiles. Two modes:
  *
@@ -82,7 +84,7 @@ function applyHomingSteering(
  *
  * Deterministic: same state + delta → same result.
  */
-export function projectileSystem(world: World, deltaSec: number): void {
+export function projectileSystem(world: World, deltaSec: number, reservePool: IReservePoolProvider): void {
   const speed = PROJECTILE_SPEED;
 
   for (const [entityId, proj] of world.projectiles) {
@@ -124,6 +126,7 @@ export function projectileSystem(world: World, deltaSec: number): void {
     if (bounced) {
       proj.bouncesRemaining--;
       if (proj.bouncesRemaining <= 0) {
+        reservePool.globalReservePool += proj.betAmount;
         world.pendingDestroy.set(entityId, { markedAtTick: world.currentTick });
       }
     }

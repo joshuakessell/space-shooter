@@ -1,186 +1,425 @@
-// ─────────────────────────────────────────────────────────────
-// AudioManager — Web Audio API Synthesizer
-// Infrastructure adapter: read-only observer, never mutates ECS.
-//
-// All sounds are oscillator-synthesized (no asset files needed).
-// Per-type concurrency caps prevent speaker distortion.
-// Random pitch variation prevents repetitive rapid-fire sounds.
-// ─────────────────────────────────────────────────────────────
+import { Howl, Howler } from 'howler';
+import { GAME_WIDTH } from '@space-shooter/shared';
 
-/** Maximum concurrent plays per sound type */
-const MAX_CONCURRENT = 4;
+const MAX_EXPLOSIONS = 5;
 
-/** Pitch variation range (±cents, 100 cents = 1 semitone) */
-const PITCH_VARIANCE = 100;
-
-/**
- * Manages synthesized game audio with concurrency caps and pitch variation.
- * Resumes AudioContext on first pointerdown (browser autoplay policy).
- */
 export class AudioManager {
-  private ctx: AudioContext | null = null;
-  private readonly activeCounts: Map<string, number> = new Map();
-  private resumed = false;
+  // Music
+  private bgm: Howl;
+
+  // Laser sounds by type
+  private laserStandard: Howl;
+  private laserSpread: Howl;
+  private laserLightning: Howl;
+
+  // Explosion sounds by size
+  private explosionSmall: Howl;
+  private explosionMedium: Howl;
+  private explosionBoss: Howl;
+
+  // Utility sounds
+  private coinCollect: Howl;
+  private jackpotSiren: Howl;
+  private impactHit: Howl;
+
+  // Special ability sounds
+  private blackholeActivate: Howl;
+  private empDischarge: Howl;
+  private drillLaunch: Howl;
+  private orbitalLaser: Howl;
+  private vaultOpen: Howl;
+  private supernovaBlast: Howl;
+
+  // Volume controls
+  private masterVolume = 1.0;
+  private musicVolume = 1.0;
+  private sfxVolume = 1.0;
+
+  // State management
+  private isInitialized = false;
+  private lastCoinTime = 0;
+  private coinCombo = 0;
+  private coinDebounceTimer: number | null = null;
+  private activeExplosions = 0;
 
   constructor() {
-    // Defer creation until first interaction (autoplay policy)
-    document.addEventListener('pointerdown', () => this.ensureContext(), { once: true });
-  }
+    // Initialize music
+    this.bgm = new Howl({
+      src: ['assets/audio/music/bgm.mp3'],
+      loop: true,
+      volume: 0.4,
+      onloaderror: () => console.warn('[Howler] Missing file: bgm.mp3'),
+      onplayerror: () => console.warn('[Howler] Play error: bgm.mp3'),
+    });
 
-  /** Ensure AudioContext is created and resumed */
-  private ensureContext(): void {
-    if (this.ctx && this.resumed) return;
+    // Initialize laser sounds
+    this.laserStandard = new Howl({
+      src: ['assets/audio/sfx/laser_standard.mp3'],
+      volume: 0.3,
+      onloaderror: () => console.warn('[Howler] Missing file: laser_standard.mp3'),
+    });
 
-    if (!this.ctx) {
-      this.ctx = new AudioContext();
-    }
+    this.laserSpread = new Howl({
+      src: ['assets/audio/sfx/laser_spread.mp3'],
+      volume: 0.3,
+      onloaderror: () => console.warn('[Howler] Missing file: laser_spread.mp3'),
+    });
 
-    if (this.ctx.state === 'suspended') {
-      this.ctx.resume().then(() => {
-        this.resumed = true;
-        console.log('[AudioManager] AudioContext resumed');
-      });
-    } else {
-      this.resumed = true;
-    }
-  }
+    this.laserLightning = new Howl({
+      src: ['assets/audio/sfx/laser_lightning.mp3'],
+      volume: 0.3,
+      onloaderror: () => console.warn('[Howler] Missing file: laser_lightning.mp3'),
+    });
 
-  // ─── Concurrency Guard ───
+    // Initialize explosion sounds
+    this.explosionSmall = new Howl({
+      src: ['assets/audio/sfx/explosion_small.mp3'],
+      volume: 0.5,
+      onloaderror: () => console.warn('[Howler] Missing file: explosion_small.mp3'),
+      onend: () => {
+        this.activeExplosions = Math.max(0, this.activeExplosions - 1);
+      },
+    });
 
-  private canPlay(type: string): boolean {
-    const count = this.activeCounts.get(type) ?? 0;
-    return count < MAX_CONCURRENT;
-  }
+    this.explosionMedium = new Howl({
+      src: ['assets/audio/sfx/explosion_medium.mp3'],
+      volume: 0.5,
+      onloaderror: () => console.warn('[Howler] Missing file: explosion_medium.mp3'),
+      onend: () => {
+        this.activeExplosions = Math.max(0, this.activeExplosions - 1);
+      },
+    });
 
-  private trackStart(type: string): void {
-    this.activeCounts.set(type, (this.activeCounts.get(type) ?? 0) + 1);
-  }
+    this.explosionBoss = new Howl({
+      src: ['assets/audio/sfx/explosion_boss.mp3'],
+      volume: 0.5,
+      onloaderror: () => console.warn('[Howler] Missing file: explosion_boss.mp3'),
+      onend: () => {
+        this.activeExplosions = Math.max(0, this.activeExplosions - 1);
+      },
+    });
 
-  private trackEnd(type: string): void {
-    const count = this.activeCounts.get(type) ?? 1;
-    this.activeCounts.set(type, Math.max(0, count - 1));
-  }
+    // Initialize utility sounds
+    this.coinCollect = new Howl({
+      src: ['assets/audio/sfx/coin_collect.mp3'],
+      volume: 0.4,
+      onloaderror: () => console.warn('[Howler] Missing file: coin_collect.mp3'),
+    });
 
-  /** Random detune in cents for pitch variation */
-  private randomDetune(): number {
-    return (Math.random() * 2 - 1) * PITCH_VARIANCE;
-  }
+    this.jackpotSiren = new Howl({
+      src: ['assets/audio/sfx/jackpot_siren.mp3'],
+      volume: 0.6,
+      onloaderror: () => console.warn('[Howler] Missing file: jackpot_siren.mp3'),
+    });
 
-  // ─── Sound Helpers ───
+    this.impactHit = new Howl({
+      src: ['assets/audio/sfx/impact_hit.mp3'],
+      volume: 0.4,
+      onloaderror: () => console.warn('[Howler] Missing file: impact_hit.mp3'),
+    });
 
-  private playOscillator(
-    type: OscillatorType,
-    freq: number,
-    durationMs: number,
-    soundType: string,
-    gain = 0.15,
-    freqEnd?: number,
-  ): void {
-    this.ensureContext();
-    if (!this.ctx || !this.canPlay(soundType)) return;
+    // Initialize special ability sounds
+    this.blackholeActivate = new Howl({
+      src: ['assets/audio/sfx/blackhole_activate.mp3'],
+      volume: 0.5,
+      onloaderror: () => console.warn('[Howler] Missing file: blackhole_activate.mp3'),
+    });
 
-    this.trackStart(soundType);
-    const now = this.ctx.currentTime;
-    const dur = durationMs / 1000;
+    this.empDischarge = new Howl({
+      src: ['assets/audio/sfx/emp_discharge.mp3'],
+      volume: 0.5,
+      onloaderror: () => console.warn('[Howler] Missing file: emp_discharge.mp3'),
+    });
 
-    const osc = this.ctx.createOscillator();
-    const gainNode = this.ctx.createGain();
+    this.drillLaunch = new Howl({
+      src: ['assets/audio/sfx/drill_launch.mp3'],
+      volume: 0.5,
+      onloaderror: () => console.warn('[Howler] Missing file: drill_launch.mp3'),
+    });
 
-    osc.type = type;
-    osc.frequency.setValueAtTime(freq, now);
-    osc.detune.setValueAtTime(this.randomDetune(), now);
-    if (freqEnd !== undefined) {
-      osc.frequency.exponentialRampToValueAtTime(Math.max(freqEnd, 20), now + dur);
-    }
+    this.orbitalLaser = new Howl({
+      src: ['assets/audio/sfx/orbital_laser.mp3'],
+      volume: 0.5,
+      onloaderror: () => console.warn('[Howler] Missing file: orbital_laser.mp3'),
+    });
 
-    gainNode.gain.setValueAtTime(gain, now);
-    gainNode.gain.exponentialRampToValueAtTime(0.001, now + dur);
+    this.vaultOpen = new Howl({
+      src: ['assets/audio/sfx/vault_open.mp3'],
+      volume: 0.5,
+      onloaderror: () => console.warn('[Howler] Missing file: vault_open.mp3'),
+    });
 
-    osc.connect(gainNode);
-    gainNode.connect(this.ctx.destination);
-    osc.start(now);
-    osc.stop(now + dur);
-
-    osc.onended = () => this.trackEnd(soundType);
-  }
-
-  private playNoise(durationMs: number, soundType: string, gain = 0.1): void {
-    this.ensureContext();
-    if (!this.ctx || !this.canPlay(soundType)) return;
-
-    this.trackStart(soundType);
-    const now = this.ctx.currentTime;
-    const dur = durationMs / 1000;
-    const sampleRate = this.ctx.sampleRate;
-    const samples = Math.floor(sampleRate * dur);
-
-    const buffer = this.ctx.createBuffer(1, samples, sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < samples; i++) {
-      data[i] = (Math.random() * 2 - 1) * Math.max(0, 1 - i / samples);
-    }
-
-    const source = this.ctx.createBufferSource();
-    source.buffer = buffer;
-
-    const gainNode = this.ctx.createGain();
-    gainNode.gain.setValueAtTime(gain, now);
-    gainNode.gain.exponentialRampToValueAtTime(0.001, now + dur);
-
-    source.connect(gainNode);
-    gainNode.connect(this.ctx.destination);
-    source.start(now);
-
-    source.onended = () => this.trackEnd(soundType);
-  }
-
-  // ─── Public API ───
-
-  /** Laser chirp — short high-frequency sweep */
-  playShoot(): void {
-    console.log('PLAY SOUND: shoot');
-    this.playOscillator('sawtooth', 880, 80, 'shoot', 0.08, 440);
-  }
-
-  /** Impact click — quick metallic ping */
-  playHit(): void {
-    console.log('PLAY SOUND: hit');
-    this.playOscillator('square', 600, 50, 'hit', 0.06, 200);
+    this.supernovaBlast = new Howl({
+      src: ['assets/audio/sfx/supernova_blast.mp3'],
+      volume: 0.5,
+      onloaderror: () => console.warn('[Howler] Missing file: supernova_blast.mp3'),
+    });
   }
 
   /**
-   * Explosion rumble — scaled by payout tier.
-   * Low multiplier = small pop, high = deep boom.
+   * Initialize the AudioManager and start BGM after first user interaction.
+   * Must be called after user interacts with the page (click, touch, etc).
    */
-  playExplosion(multiplier: number): void {
-    console.log(`PLAY SOUND: explosion (${multiplier}x)`);
+  public init(): void {
+    if (this.isInitialized) return;
+    this.isInitialized = true;
+    console.log('[AudioManager] Initialized, starting BGM');
 
-    if (multiplier >= 50) {
-      // Boss: deep rumble + noise
-      this.playOscillator('sawtooth', 80, 500, 'explosion', 0.2, 20);
-      this.playNoise(400, 'explosion_noise', 0.15);
-    } else if (multiplier >= 10) {
-      // Mid: medium boom
-      this.playOscillator('sawtooth', 150, 300, 'explosion', 0.15, 40);
-      this.playNoise(200, 'explosion_noise', 0.08);
-    } else {
-      // Small pop
-      this.playOscillator('triangle', 300, 150, 'explosion', 0.1, 80);
+    // Enable autoUnlock for iOS and other browsers requiring user interaction
+    Howler.autoUnlock = true;
+
+    // Start BGM with fade-in
+    this.bgm.play();
+    this.bgm.fade(0, this.musicVolume * this.masterVolume * 0.4, 2000);
+  }
+
+  /**
+   * Calculate stereo pan position based on X coordinate.
+   * -1 = left, 0 = center, 1 = right
+   */
+  private getPan(x: number): number {
+    return Math.max(-1, Math.min(1, (x - (GAME_WIDTH / 2)) / (GAME_WIDTH / 2)));
+  }
+
+  /**
+   * Play a sound with spatial panning and rate control.
+   */
+  private playSpatialSound(sound: Howl, x?: number, rate = 1.0): number | undefined {
+    if (!this.isInitialized) return undefined;
+
+    const id = sound.play();
+    if (id === undefined) return undefined;
+
+    // Apply playback rate
+    sound.rate(rate, id);
+
+    // Apply spatial panning if X position provided
+    if (x !== undefined) {
+      const pan = this.getPan(x);
+      sound.stereo(pan, id);
     }
+
+    return id;
   }
 
-  /** Coin collect — bright ding with ascending pitch */
-  playCoinCollect(): void {
-    console.log('PLAY SOUND: coin');
-    this.playOscillator('sine', 1200, 100, 'coin', 0.06, 1800);
+  /**
+   * Play a laser sound based on weapon type.
+   * Supports: 'standard', 'spread', 'lightning'
+   */
+  public playShoot(x?: number, weaponType: string = 'standard'): void {
+    if (!this.isInitialized) return;
+
+    let laserSound: Howl;
+    switch (weaponType) {
+      case 'spread':
+        laserSound = this.laserSpread;
+        break;
+      case 'lightning':
+        laserSound = this.laserLightning;
+        break;
+      case 'standard':
+      default:
+        laserSound = this.laserStandard;
+        break;
+    }
+
+    this.playSpatialSound(laserSound, x);
   }
 
-  /** Jackpot siren — dramatic ascending sweep */
-  playJackpotSiren(): void {
-    console.log('PLAY SOUND: jackpot');
-    this.playOscillator('sawtooth', 200, 1500, 'jackpot', 0.12, 1200);
+  /**
+   * Play an explosion sound based on enemy multiplier.
+   * small: mult < 8
+   * medium: mult 8-24
+   * boss: mult 25+
+   */
+  public playExplosion(multiplier: number, x?: number): void {
+    if (!this.isInitialized) return;
+    if (this.activeExplosions >= MAX_EXPLOSIONS) return;
+
+    this.activeExplosions++;
+
+    let explosionSound: Howl;
+    if (multiplier >= 25) {
+      explosionSound = this.explosionBoss;
+    } else if (multiplier >= 8) {
+      explosionSound = this.explosionMedium;
+    } else {
+      explosionSound = this.explosionSmall;
+    }
+
+    this.playSpatialSound(explosionSound, x);
+  }
+
+  /**
+   * Play impact/hit sound at optional X position.
+   */
+  public playHit(x?: number): void {
+    if (!this.isInitialized) return;
+    this.playSpatialSound(this.impactHit, x);
+  }
+
+  /**
+   * Play coin collect sound with ascending pitch on rapid collects (combo).
+   */
+  public playCoinCollect(x?: number): void {
+    if (!this.isInitialized) return;
+
+    if (this.coinDebounceTimer !== null) {
+      clearTimeout(this.coinDebounceTimer);
+    }
+
+    const now = performance.now();
+    if (now - this.lastCoinTime <= 150 && this.lastCoinTime !== 0) {
+      this.coinCombo++;
+    } else if (now - this.lastCoinTime > 250) {
+      this.coinCombo = 0;
+    }
+    this.lastCoinTime = now;
+
+    // Calculate pitch increase: 1.0 + (combo * 0.05), capped at 2.0
+    const currentRate = 1.0 + (this.coinCombo * 0.05);
+    const cappedRate = Math.min(currentRate, 2.0);
+
+    this.playSpatialSound(this.coinCollect, x, cappedRate);
+
+    this.coinDebounceTimer = window.setTimeout(() => {
+      this.coinCombo = 0;
+      this.lastCoinTime = 0;
+    }, 250);
+  }
+
+  /**
+   * Play jackpot siren sound.
+   */
+  public playJackpotSiren(x?: number): void {
+    if (!this.isInitialized) return;
+    this.playSpatialSound(this.jackpotSiren, x);
+  }
+
+  /**
+   * Play blackhole activation sound.
+   */
+  public playBlackholeActivate(x?: number): void {
+    if (!this.isInitialized) return;
+    this.playSpatialSound(this.blackholeActivate, x);
+  }
+
+  /**
+   * Play EMP discharge sound.
+   */
+  public playEmpDischarge(x?: number): void {
+    if (!this.isInitialized) return;
+    this.playSpatialSound(this.empDischarge, x);
+  }
+
+  /**
+   * Play drill launch sound.
+   */
+  public playDrillLaunch(x?: number): void {
+    if (!this.isInitialized) return;
+    this.playSpatialSound(this.drillLaunch, x);
+  }
+
+  /**
+   * Play orbital laser sound.
+   */
+  public playOrbitalLaser(x?: number): void {
+    if (!this.isInitialized) return;
+    this.playSpatialSound(this.orbitalLaser, x);
+  }
+
+  /**
+   * Play vault open sound.
+   */
+  public playVaultOpen(x?: number): void {
+    if (!this.isInitialized) return;
+    this.playSpatialSound(this.vaultOpen, x);
+  }
+
+  /**
+   * Play supernova blast sound.
+   */
+  public playSupernovaBlast(x?: number): void {
+    if (!this.isInitialized) return;
+    this.playSpatialSound(this.supernovaBlast, x);
+  }
+
+  /**
+   * Duck (reduce) music volume temporarily during intense moments.
+   */
+  public duckMusic(durationMs: number): void {
+    if (!this.isInitialized) return;
+
+    const targetMusicVol = this.musicVolume * this.masterVolume * 0.05;
+    const normalMusicVol = this.musicVolume * this.masterVolume * 0.3;
+
+    this.bgm.fade(this.bgm.volume(), targetMusicVol, 200);
+
     setTimeout(() => {
-      this.playOscillator('square', 800, 800, 'jackpot2', 0.08, 1600);
-    }, 300);
+      this.bgm.fade(this.bgm.volume(), normalMusicVol, 500);
+    }, durationMs);
+  }
+
+  /**
+   * Set master volume (affects all sounds: music and SFX).
+   * Range: 0 to 1
+   */
+  public setMasterVolume(volume: number): void {
+    this.masterVolume = Math.max(0, Math.min(1, volume));
+    Howler.volume(this.masterVolume);
+  }
+
+  /**
+   * Set music volume.
+   * Range: 0 to 1
+   */
+  public setMusicVolume(volume: number): void {
+    this.musicVolume = Math.max(0, Math.min(1, volume));
+    this.bgm.volume(this.musicVolume * this.masterVolume);
+  }
+
+  /**
+   * Set SFX volume.
+   * Range: 0 to 1
+   */
+  public setSfxVolume(volume: number): void {
+    this.sfxVolume = Math.max(0, Math.min(1, volume));
+    // Apply SFX volume to all sound effects
+    this.laserStandard.volume(0.3 * this.sfxVolume * this.masterVolume);
+    this.laserSpread.volume(0.3 * this.sfxVolume * this.masterVolume);
+    this.laserLightning.volume(0.3 * this.sfxVolume * this.masterVolume);
+    this.explosionSmall.volume(0.5 * this.sfxVolume * this.masterVolume);
+    this.explosionMedium.volume(0.5 * this.sfxVolume * this.masterVolume);
+    this.explosionBoss.volume(0.5 * this.sfxVolume * this.masterVolume);
+    this.coinCollect.volume(0.4 * this.sfxVolume * this.masterVolume);
+    this.jackpotSiren.volume(0.6 * this.sfxVolume * this.masterVolume);
+    this.impactHit.volume(0.4 * this.sfxVolume * this.masterVolume);
+    this.blackholeActivate.volume(0.5 * this.sfxVolume * this.masterVolume);
+    this.empDischarge.volume(0.5 * this.sfxVolume * this.masterVolume);
+    this.drillLaunch.volume(0.5 * this.sfxVolume * this.masterVolume);
+    this.orbitalLaser.volume(0.5 * this.sfxVolume * this.masterVolume);
+    this.vaultOpen.volume(0.5 * this.sfxVolume * this.masterVolume);
+    this.supernovaBlast.volume(0.5 * this.sfxVolume * this.masterVolume);
+  }
+
+  /**
+   * Get current master volume.
+   */
+  public getMasterVolume(): number {
+    return this.masterVolume;
+  }
+
+  /**
+   * Get current music volume.
+   */
+  public getMusicVolume(): number {
+    return this.musicVolume;
+  }
+
+  /**
+   * Get current SFX volume.
+   */
+  public getSfxVolume(): number {
+    return this.sfxVolume;
   }
 }

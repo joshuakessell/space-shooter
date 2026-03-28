@@ -24,6 +24,7 @@ import type { SpaceObjectType, EntityId } from '@space-shooter/shared';
 import type { IRngService } from './CsprngService.js';
 import type { RoomEconomyManager } from './RoomEconomyManager.js';
 import type { IGameBalanceConfig } from '../config/GameBalanceConfig.js';
+import type { IReservePoolProvider } from '../ecs/systems/SystemRunner.js';
 
 // ─── Hit Evaluation Result (Rich Audit Data) ───
 
@@ -90,6 +91,7 @@ export class RtpEngine {
    * @param playerId   - Session ID of the owning player
    * @param targetEntityId - Entity ID of the target (for piñata lookup)
    * @param absorbedCredits - Credits absorbed by this target from failed hits
+   * @param reservePool - Global reserve pool provider to tap into for subsidized wins
    */
   evaluateHit(
     objectType: SpaceObjectType,
@@ -97,13 +99,31 @@ export class RtpEngine {
     playerId: string,
     targetEntityId: EntityId,
     absorbedCredits: number,
-  ): IHitEvaluation {
+    reservePool: IReservePoolProvider,
+  ): IHitEvaluation & { newAbsorbedCredits: number } {
     const objConfig = this.config.objectTypes[objectType];
     if (!objConfig) {
       throw new Error(`[RtpEngine] Unknown SpaceObjectType: ${objectType}`);
     }
 
-    const multiplier = objConfig.multiplier;
+    const bet = Number(betAmount) || 0;
+    const mult = Number(objConfig.multiplier) || 1;
+    const payout = bet * mult;
+
+    if (Number.isNaN(payout) || Number.isNaN(absorbedCredits) || Number.isNaN(reservePool.globalReservePool)) {
+      console.error("[RTP ERROR] NaN detected in RtpEngine", { bet, mult, absorbed: absorbedCredits, pool: reservePool.globalReservePool }); 
+      return {
+        destroyed: false,
+        payout: 0,
+        multiplier: mult,
+        rngRoll: 0,
+        finalThreshold: 0,
+        modifiers: { baseChance: 0, globalVolatility: 0, hotSeatModifier: 0, pinataModifier: 0, pityModifier: 0, unclamped: 0, clamped: 0 },
+        newAbsorbedCredits: Number(absorbedCredits) || 0,
+      };
+    }
+
+    const multiplier = mult;
 
     // ─── Layer 0: Base Chance ───
     // BaseChance = (1 / multiplier) × targetRtp
@@ -125,9 +145,45 @@ export class RtpEngine {
     const unclamped = baseChance * globalVolatility * hotSeatModifier * pinataModifier * pityModifier;
     const clamped = Math.min(unclamped, this.config.maxSuccessThreshold);
 
-    // ─── CSPRNG Roll ───
-    const rngRoll = this.rng.random();
-    const destroyed = rngRoll < clamped;
+    // ─── Subsidized Win Check ───
+    const availableFunds = Number(absorbedCredits) + Number(reservePool.globalReservePool);
+    
+    let destroyed = false;
+    let rngRoll = 0;
+    let newAbsorbedCredits = absorbedCredits;
+
+    if (availableFunds >= payout) {
+      // Force Win via Reserve Pool Subsidy
+      destroyed = true;
+      rngRoll = 0; // Artificial roll
+
+      // Deduct from pools
+      if (newAbsorbedCredits >= payout) {
+        newAbsorbedCredits -= payout;
+      } else {
+        const remainder = payout - newAbsorbedCredits;
+        newAbsorbedCredits = 0;
+        reservePool.globalReservePool -= remainder;
+      }
+    } else {
+      // ─── CSPRNG Roll ───
+      rngRoll = this.rng.random();
+      destroyed = rngRoll < clamped;
+
+      if (destroyed) {
+        // Natural win: Attempt to drain pools to prevent inflation
+        if (newAbsorbedCredits >= payout) {
+          newAbsorbedCredits -= payout;
+        } else {
+          const remainder = payout - newAbsorbedCredits;
+          newAbsorbedCredits = 0;
+          reservePool.globalReservePool = Math.max(0, reservePool.globalReservePool - remainder);
+        }
+      } else {
+        // Natural miss: absorb bet
+        newAbsorbedCredits += betAmount;
+      }
+    }
 
     // ─── Update Pity Counter ───
     if (destroyed) {
@@ -154,6 +210,7 @@ export class RtpEngine {
       rngRoll,
       finalThreshold: clamped,
       modifiers,
+      newAbsorbedCredits,
     };
   }
 

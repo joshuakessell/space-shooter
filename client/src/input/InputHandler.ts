@@ -237,6 +237,11 @@ export class InputHandler {
     return this.activeWeaponType;
   }
 
+  /** Force update weapon type (called when HUD UI is clicked) */
+  setWeaponType(weapon: WeaponType): void {
+    this.activeWeaponType = weapon;
+  }
+
   destroy(): void {
     // Listeners are gc'd with the element
   }

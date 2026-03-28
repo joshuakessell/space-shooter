@@ -8,7 +8,7 @@
 // client-side prediction; remote players get ghost events.
 // ─────────────────────────────────────────────────────────────
 
-import { Client, Room } from 'colyseus.js';
+import { Client, Room } from '@colyseus/sdk';
 import {
   CLIENT_MESSAGES,
   SERVER_MESSAGES,
@@ -231,6 +231,7 @@ export class GameClient {
 
     } catch (err) {
       this.callbacks.onError(err instanceof Error ? err : new Error(String(err)));
+      throw err;
     }
   }
 

@@ -24,6 +24,7 @@ import type { WalletManager } from '../../services/WalletManager.js';
 import type { RoomEconomyManager } from '../../services/RoomEconomyManager.js';
 import type { IRngService } from '../../services/CsprngService.js';
 import { Quadtree } from '../../spatial/Quadtree.js';
+import type { IReservePoolProvider } from './SystemRunner.js';
 
 /** Extended payout event with audit data */
 export interface IAuditedPayoutEvent extends IPayoutEvent {
@@ -65,6 +66,7 @@ interface DestroyContext {
   rng: IRngService;
   wallet: WalletManager;
   economy: RoomEconomyManager;
+  reservePool: IReservePoolProvider;
   payouts: IPayoutEvent[];
   resolutions: ICollisionResolution[];
 }
@@ -108,6 +110,7 @@ export function destroySystem(
   rng: IRngService,
   wallet: WalletManager,
   economy: RoomEconomyManager,
+  reservePool: IReservePoolProvider,
 ): {
   payouts: IPayoutEvent[];
   resolutions: ICollisionResolution[];
@@ -120,7 +123,7 @@ export function destroySystem(
   const chainHits: ChainHitEvent[] = [];
   const aoeBlasts: AoeDestroyedEvent[] = [];
   const featureSpawns: FeatureSpawnEvent[] = [];
-  const ctx: DestroyContext = { world, rtpEngine, rng, wallet, economy, payouts, resolutions };
+  const ctx: DestroyContext = { world, rtpEngine, rng, wallet, economy, reservePool, payouts, resolutions };
 
   for (const collision of collisions) {
     processCollision(ctx, collision, chainHits, aoeBlasts, featureSpawns);
@@ -150,6 +153,8 @@ function processCollision(
 
   // First-kill mutex
   if (spaceObj.isDead || world.pendingDestroy.has(objectId)) {
+    // Overkill: refund the wasted bullet into the ecosystem
+    ctx.reservePool.globalReservePool += betAmount;
     world.pendingDestroy.set(projectileId, { markedAtTick: world.currentTick });
     return;
   }
@@ -164,8 +169,11 @@ function processCollision(
 
   // 4-Layer RTP evaluation
   const hitEval = rtpEngine.evaluateHit(
-    spaceObj.type, betAmount, projectileOwnerId, objectId, spaceObj.absorbedCredits,
+    spaceObj.type, betAmount, projectileOwnerId, objectId, spaceObj.absorbedCredits, ctx.reservePool,
   );
+  
+  // Apply any absorbed credit adjustments from subsidized wins
+  spaceObj.absorbedCredits = hitEval.newAbsorbedCredits;
 
   resolutions.push({ playerId: projectileOwnerId, targetEntityId: objectId, betAmount, hitEvaluation: hitEval });
 
@@ -197,8 +205,6 @@ function processCollision(
 
     // Feature target → spawn hazard
     resolveFeatureSpawn(ctx, spaceObj.type, projectileOwnerId, betAmount, objectId, featureSpawns);
-  } else {
-    spaceObj.absorbedCredits += betAmount;
   }
 
   // Chain lightning
@@ -338,7 +344,10 @@ function resolveAoEBlast(
       playerId,
       candidate.entityId,
       spaceObj.absorbedCredits,
+      ctx.reservePool
     );
+
+    spaceObj.absorbedCredits = hitEval.newAbsorbedCredits;
 
     resolutions.push({
       playerId,
@@ -372,8 +381,7 @@ function resolveAoEBlast(
 
       economy.recordPayout(hitEval.payout);
     } else {
-      // Piñata absorption for AoE misses
-      spaceObj.absorbedCredits += betAmount;
+      // Handled inside evaluateHit now
     }
   }
 

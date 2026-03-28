@@ -33,14 +33,16 @@ export interface SpawnRequest {
 }
 
 /** Wave type identifier */
-export type WaveType = 'ASTEROID_BELT' | 'ALIEN_V_FORMATION' | 'BOSS_ESCORT' | 'RANDOM_SINGLE';
+export type WaveType = 'ASTEROID_BELT' | 'ALIEN_V_FORMATION' | 'BOSS_ESCORT' | 'RANDOM_SINGLE' | 'FISH_SCHOOL' | 'SWARM';
 
 /** Weights for random wave selection */
 const WAVE_WEIGHTS: Record<WaveType, number> = {
-  RANDOM_SINGLE: 40,
-  ASTEROID_BELT: 25,
-  ALIEN_V_FORMATION: 20,
-  BOSS_ESCORT: 15,
+  RANDOM_SINGLE: 25,
+  ASTEROID_BELT: 20,
+  ALIEN_V_FORMATION: 18,
+  BOSS_ESCORT: 12,
+  FISH_SCHOOL: 15,
+  SWARM: 10,
 };
 
 /** Zero offset constant — reused to avoid allocations */
@@ -78,17 +80,21 @@ export class WaveManager {
         return this.generateBossEscort();
       case 'RANDOM_SINGLE':
         return this.generateRandomSingle();
+      case 'FISH_SCHOOL':
+        return this.generateFishSchool();
+      case 'SWARM':
+        return this.generateSwarm();
     }
   }
 
   // ─── Wave Generators ───
 
   /**
-   * ASTEROID_BELT: 5-10 asteroids spawning 8 ticks (400ms) apart
+   * ASTEROID_BELT: 8-16 asteroids spawning 6 ticks (300ms) apart
    * on the exact same sine wave path — creates a snake-like line.
    */
   private generateAsteroidBelt(): SpawnRequest[] {
-    const count = this.rng.randomRange(5, 11);
+    const count = this.rng.randomRange(8, 17);
     const requests: SpawnRequest[] = [];
 
     // Shared sine path: straight line across screen with wave
@@ -108,7 +114,7 @@ export class WaveManager {
         offset: ZERO_OFFSET,
         sineAmplitude: amplitude,
         sineFrequency: frequency,
-        delayTicks: i * 8, // 400ms stagger at 20 ticks/sec
+        delayTicks: i * 6, // 300ms stagger at 20 ticks/sec
       });
     }
 
@@ -277,6 +283,108 @@ export class WaveManager {
       sineFrequency: 0,
       delayTicks: 0,
     }];
+  }
+
+  /**
+   * FISH_SCHOOL: 12-20 small targets (ASTEROID/ROCKET) moving
+   * together in a circular/oval cluster on a Bézier path.
+   * Each member has a small random offset creating a cloud effect.
+   */
+  private generateFishSchool(): SpawnRequest[] {
+    const count = this.rng.randomRange(12, 21);
+    const requests: SpawnRequest[] = [];
+
+    const entryEdge = this.rng.randomRange(0, 4);
+    const start = this.pointOnEdge(entryEdge);
+    const end = this.pointOnEdge((entryEdge + 2) % 4);
+
+    const cp1: IVector2 = {
+      x: this.rng.randomFloat(200, GAME_WIDTH - 200),
+      y: this.rng.randomFloat(200, GAME_HEIGHT - 200),
+    };
+    const cp2: IVector2 = {
+      x: this.rng.randomFloat(200, GAME_WIDTH - 200),
+      y: this.rng.randomFloat(200, GAME_HEIGHT - 200),
+    };
+
+    const controlPoints = [start, cp1, cp2, end];
+    const duration = this.rng.randomFloat(10000, 16000);
+
+    // Pick a small-tier type for the school
+    const schoolType = this.rng.randomFloat(0, 1) < 0.6
+      ? SpaceObjectType.ASTEROID
+      : SpaceObjectType.ROCKET;
+
+    for (let i = 0; i < count; i++) {
+      // Circular cluster offset — each fish gets a random position
+      // within a 100px radius cloud around the path center
+      const angle = this.rng.randomFloat(0, Math.PI * 2);
+      const dist = this.rng.randomFloat(10, 100);
+      const offset: IVector2 = {
+        x: Math.cos(angle) * dist,
+        y: Math.sin(angle) * dist,
+      };
+
+      requests.push({
+        type: schoolType,
+        pathType: 'bezier',
+        controlPoints,
+        duration,
+        offset,
+        sineAmplitude: 0,
+        sineFrequency: 0,
+        delayTicks: this.rng.randomRange(0, 4), // Near-simultaneous spawn
+      });
+    }
+
+    return requests;
+  }
+
+  /**
+   * SWARM: 8-15 mid-tier targets (ALIEN_CRAFT/SPACE_JELLY) entering
+   * from one edge in a diagonal cascade with staggered delays.
+   * Creates a waterfall-like flow of medium-value targets.
+   */
+  private generateSwarm(): SpawnRequest[] {
+    const count = this.rng.randomRange(8, 16);
+    const requests: SpawnRequest[] = [];
+
+    const entryEdge = this.rng.randomRange(0, 4);
+    const exitEdge = (entryEdge + 2) % 4;
+    const duration = this.rng.randomFloat(8000, 13000);
+
+    // Pick a mid-tier type for the swarm
+    const swarmType = this.rng.randomFloat(0, 1) < 0.5
+      ? SpaceObjectType.ALIEN_CRAFT
+      : SpaceObjectType.SPACE_JELLY;
+
+    for (let i = 0; i < count; i++) {
+      // Each target gets its own path with slight variation
+      const start = this.pointOnEdge(entryEdge);
+      const end = this.pointOnEdge(exitEdge);
+
+      const cp1: IVector2 = {
+        x: this.rng.randomFloat(150, GAME_WIDTH - 150),
+        y: this.rng.randomFloat(150, GAME_HEIGHT - 150),
+      };
+      const cp2: IVector2 = {
+        x: this.rng.randomFloat(150, GAME_WIDTH - 150),
+        y: this.rng.randomFloat(150, GAME_HEIGHT - 150),
+      };
+
+      requests.push({
+        type: swarmType,
+        pathType: 'bezier',
+        controlPoints: [start, cp1, cp2, end],
+        duration,
+        offset: ZERO_OFFSET,
+        sineAmplitude: 0,
+        sineFrequency: 0,
+        delayTicks: i * 4, // 200ms stagger at 20 ticks/sec — cascade effect
+      });
+    }
+
+    return requests;
   }
 
   // ─── Helpers ───

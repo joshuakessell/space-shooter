@@ -12,6 +12,8 @@ import type { World } from '../World.js';
 import type { MutablePoint } from '../../spatial/PathMath.js';
 import { evaluateBezier, evaluateSinePath } from '../../spatial/PathMath.js';
 
+import type { IReservePoolProvider } from './SystemRunner.js';
+
 /** Reusable scratch point — prevents GC pressure in the hot loop */
 const scratch: MutablePoint = { x: 0, y: 0 };
 
@@ -21,12 +23,12 @@ const scratch: MutablePoint = { x: 0, y: 0 };
  * For each entity:
  * 1. Advance timeAlive by deltaMs
  * 2. Calculate t = timeAlive / duration (clamped to [0, 1])
- * 3. If t >= 1.0 → tag for PendingDestroy (path complete, no payout)
+ * 3. If t >= 1.0 → tag for PendingDestroy (path complete, no payout). Dumps absorbed credits into global reserve pool.
  * 4. Otherwise → evaluate path curve, add offset, write to PositionComponent
  *
  * Deterministic: same state + deltaMs → same output.
  */
-export function movementSystem(world: World, deltaMs: number): void {
+export function movementSystem(world: World, deltaMs: number, reservePool: IReservePoolProvider): void {
   for (const [entityId, path] of world.paths) {
     if (world.pendingDestroy.has(entityId)) continue;
 
@@ -40,7 +42,14 @@ export function movementSystem(world: World, deltaMs: number): void {
     const t = path.timeAlive / path.duration;
 
     if (t >= 1) {
-      // Path complete — target survived and exited. No payout.
+      // Path complete — target survived and exited.
+      // Recover any absorbed credits into the global reserve pool
+      const so = world.spaceObjects.get(entityId);
+      if (so && so.absorbedCredits > 0) {
+        reservePool.globalReservePool += so.absorbedCredits;
+        so.absorbedCredits = 0; // Clear it just in case
+      }
+
       world.pendingDestroy.set(entityId, { markedAtTick: world.currentTick });
       continue;
     }

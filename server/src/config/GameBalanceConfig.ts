@@ -132,86 +132,86 @@ export const GAME_BALANCE_CONFIG: IGameBalanceConfig = {
     [SpaceObjectType.ASTEROID]: {
       multiplier: 2,
       destroyProbability: 0.49,    // 2 × 0.49 = 0.98
-      collisionRadius: 40,
-      spawnWeight: 30,
+      collisionRadius: 36,
+      spawnWeight: 24,
     },
     [SpaceObjectType.ROCKET]: {
       multiplier: 3,
       destroyProbability: 0.3267,  // 3 × 0.3267 ≈ 0.98
-      collisionRadius: 35,
-      spawnWeight: 25,
+      collisionRadius: 38,
+      spawnWeight: 22,
     },
     [SpaceObjectType.ALIEN_CRAFT]: {
       multiplier: 5,
       destroyProbability: 0.196,   // 5 × 0.196 = 0.98
-      collisionRadius: 32,
+      collisionRadius: 42,
       spawnWeight: 18,
     },
     [SpaceObjectType.SPACE_JELLY]: {
       multiplier: 8,
       destroyProbability: 0.1225,  // 8 × 0.1225 = 0.98
-      collisionRadius: 30,
-      spawnWeight: 12,
+      collisionRadius: 48,
+      spawnWeight: 14,
     },
     [SpaceObjectType.ALIEN_CREATURE]: {
       multiplier: 15,
       destroyProbability: 0.0653,  // 15 × 0.0653 ≈ 0.98
-      collisionRadius: 28,
-      spawnWeight: 7,
+      collisionRadius: 55,
+      spawnWeight: 10,
     },
     [SpaceObjectType.METEOR_SHOWER]: {
       multiplier: 25,
       destroyProbability: 0.0392,  // 25 × 0.0392 = 0.98
-      collisionRadius: 26,
-      spawnWeight: 4,
+      collisionRadius: 62,
+      spawnWeight: 7,
     },
     [SpaceObjectType.NEBULA_BEAST]: {
       multiplier: 50,
       destroyProbability: 0.0196,  // 50 × 0.0196 = 0.98
-      collisionRadius: 24,
-      spawnWeight: 2.5,
+      collisionRadius: 80,
+      spawnWeight: 4,
     },
     [SpaceObjectType.COSMIC_WHALE]: {
       multiplier: 100,
       destroyProbability: 0.0098,  // 100 × 0.0098 = 0.98
-      collisionRadius: 22,
-      spawnWeight: 1.5,
+      collisionRadius: 100,
+      spawnWeight: 3,
     },
     [SpaceObjectType.SUPERNOVA_BOMB]: {
       multiplier: 20,
       destroyProbability: 0.049,   // 20 × 0.049 = 0.98 (AoE on kill)
-      collisionRadius: 45,
-      spawnWeight: 1,
+      collisionRadius: 60,
+      spawnWeight: 1.5,
     },
     [SpaceObjectType.BLACKHOLE_GEN]: {
       multiplier: 25,
       destroyProbability: 0.0392,
-      collisionRadius: 55,
-      spawnWeight: 0.4,
+      collisionRadius: 113,
+      spawnWeight: 0.2,
     },
     [SpaceObjectType.QUANTUM_DRILL]: {
       multiplier: 20,
       destroyProbability: 0.049,
-      collisionRadius: 40,
-      spawnWeight: 0.5,
+      collisionRadius: 100,
+      spawnWeight: 0.25,
     },
     [SpaceObjectType.EMP_RELAY]: {
       multiplier: 15,
       destroyProbability: 0.0653,
-      collisionRadius: 50,
-      spawnWeight: 0.5,
+      collisionRadius: 106,
+      spawnWeight: 0.3,
     },
     [SpaceObjectType.ORBITAL_CORE]: {
       multiplier: 30,
       destroyProbability: 0.0327,
-      collisionRadius: 60,
-      spawnWeight: 0.3,
+      collisionRadius: 125,
+      spawnWeight: 0.15,
     },
     [SpaceObjectType.COSMIC_VAULT]: {
       multiplier: 20,
       destroyProbability: 0.049,
-      collisionRadius: 55,
-      spawnWeight: 0.3,
+      collisionRadius: 119,
+      spawnWeight: 0.2,
     },
   },
 };

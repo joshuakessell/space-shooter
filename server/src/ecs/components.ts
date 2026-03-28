@@ -46,16 +46,16 @@ export interface PathComponent {
 // ─── Game Entity Components ───
 
 /** Space object data attached to enemy entities */
-export interface SpaceObjectComponent {
-  readonly type: SpaceObjectType;
-  readonly multiplier: number;
-  readonly destroyProbability: number;
+export class SpaceObjectComponent {
+  type: SpaceObjectType = 'asteroid' as any;
+  multiplier: number = 1;
+  destroyProbability: number = 0;
   /**
    * Hidden absorbed credits from failed hits (Piñata mechanic).
    * CRITICAL SECURITY: This value is NEVER synced to clients
    * via @colyseus/schema. It exists only in server memory.
    */
-  absorbedCredits: number;
+  absorbedCredits: number = 0;
   /**
    * First-kill mutex flag. Set to true immediately on successful
    * RNG roll within the same tick's collision resolution loop.
@@ -63,12 +63,12 @@ export interface SpaceObjectComponent {
    * the same target in the same tick.
    * Separate from PendingDestroy (which is deferred cleanup).
    */
-  isDead: boolean;
+  isDead: boolean = false;
   /**
    * When true, bullets cannot interact with this target.
    * Set by Black Hole / EMP hazards to prevent kill-stealing.
    */
-  isCaptured: boolean;
+  isCaptured: boolean = false;
 }
 
 /** Projectile (laser) data */

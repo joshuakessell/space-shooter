@@ -15,8 +15,8 @@ import type { IRtpEntry } from './types.js';
  *
  * Lower-probability targets have higher multipliers for medium volatility.
  *
- * Object radii also scale inversely with multiplier — rare targets are
- * smaller and harder to hit, adding a skill element on top of the RNG.
+ * Object radii scale with multiplier — rare targets are larger and
+ * visually dominant, making them easy to aim at but hard to kill.
  */
 export const RTP_TABLE: ReadonlyMap<SpaceObjectType, IRtpEntry> = new Map([
   [SpaceObjectType.ASTEROID, {
@@ -94,23 +94,23 @@ export const RTP_TABLE: ReadonlyMap<SpaceObjectType, IRtpEntry> = new Map([
 
 /**
  * Collision radius per object type (pixels).
- * Rarer objects are smaller — a skill element layered on the RNG.
+ * Higher-value targets are LARGER — easy to hit, hard to kill.
  */
 export const OBJECT_RADII: ReadonlyMap<SpaceObjectType, number> = new Map([
-  [SpaceObjectType.ASTEROID,       40],
-  [SpaceObjectType.ROCKET,         35],
-  [SpaceObjectType.ALIEN_CRAFT,    32],
-  [SpaceObjectType.SPACE_JELLY,    30],
-  [SpaceObjectType.ALIEN_CREATURE, 28],
-  [SpaceObjectType.METEOR_SHOWER,  26],
-  [SpaceObjectType.NEBULA_BEAST,   24],
-  [SpaceObjectType.COSMIC_WHALE,   22],
-  [SpaceObjectType.SUPERNOVA_BOMB,  45],
-  [SpaceObjectType.BLACKHOLE_GEN,   55],
-  [SpaceObjectType.QUANTUM_DRILL,   40],
-  [SpaceObjectType.EMP_RELAY,       50],
-  [SpaceObjectType.ORBITAL_CORE,    60],
-  [SpaceObjectType.COSMIC_VAULT,    55],
+  [SpaceObjectType.ASTEROID,       36],
+  [SpaceObjectType.ROCKET,         38],
+  [SpaceObjectType.ALIEN_CRAFT,    42],
+  [SpaceObjectType.SPACE_JELLY,    48],
+  [SpaceObjectType.ALIEN_CREATURE, 55],
+  [SpaceObjectType.METEOR_SHOWER,  62],
+  [SpaceObjectType.NEBULA_BEAST,   80],
+  [SpaceObjectType.COSMIC_WHALE,   100],
+  [SpaceObjectType.SUPERNOVA_BOMB,  60],
+  [SpaceObjectType.BLACKHOLE_GEN,   113],
+  [SpaceObjectType.QUANTUM_DRILL,   100],
+  [SpaceObjectType.EMP_RELAY,       106],
+  [SpaceObjectType.ORBITAL_CORE,    125],
+  [SpaceObjectType.COSMIC_VAULT,    119],
 ]);
 
 /**
@@ -119,15 +119,15 @@ export const OBJECT_RADII: ReadonlyMap<SpaceObjectType, number> = new Map([
  * Weights are relative (higher = more frequent).
  */
 export const SPAWN_WEIGHTS: ReadonlyMap<SpaceObjectType, number> = new Map([
-  [SpaceObjectType.ASTEROID,       30],
-  [SpaceObjectType.ROCKET,         25],
+  [SpaceObjectType.ASTEROID,       24],
+  [SpaceObjectType.ROCKET,         22],
   [SpaceObjectType.ALIEN_CRAFT,    18],
-  [SpaceObjectType.SPACE_JELLY,    12],
-  [SpaceObjectType.ALIEN_CREATURE, 7],
-  [SpaceObjectType.METEOR_SHOWER,  4],
-  [SpaceObjectType.NEBULA_BEAST,   2.5],
-  [SpaceObjectType.COSMIC_WHALE,   1.5],
-  [SpaceObjectType.SUPERNOVA_BOMB,  1],
+  [SpaceObjectType.SPACE_JELLY,    14],
+  [SpaceObjectType.ALIEN_CREATURE, 10],
+  [SpaceObjectType.METEOR_SHOWER,  7],
+  [SpaceObjectType.NEBULA_BEAST,   4],
+  [SpaceObjectType.COSMIC_WHALE,   3],
+  [SpaceObjectType.SUPERNOVA_BOMB,  1.5],
   [SpaceObjectType.BLACKHOLE_GEN,   0.4],
   [SpaceObjectType.QUANTUM_DRILL,   0.5],
   [SpaceObjectType.EMP_RELAY,       0.5],

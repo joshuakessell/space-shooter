@@ -48,15 +48,15 @@ export const MIN_OBJECT_RADIUS = 20;
 export const MAX_PROJECTILES_PER_PLAYER = 20;
 
 /** Maximum simultaneous space objects on screen */
-export const MAX_SPACE_OBJECTS = 30;
+export const MAX_SPACE_OBJECTS = 58;
 
 /** Space object base speed range (pixels per second) */
-export const OBJECT_MIN_SPEED = 60;
-export const OBJECT_MAX_SPEED = 200;
+export const OBJECT_MIN_SPEED = 70;
+export const OBJECT_MAX_SPEED = 220;
 
 /** Spawn interval range in ticks */
-export const SPAWN_MIN_INTERVAL_TICKS = 5;   // 250ms
-export const SPAWN_MAX_INTERVAL_TICKS = 20;  // 1000ms
+export const SPAWN_MIN_INTERVAL_TICKS = 3;   // 150ms
+export const SPAWN_MAX_INTERVAL_TICKS = 12;  // 600ms
 
 /** Turret positions: pixel coordinates for each of the 6 turret slots */
 export const TURRET_POSITIONS: Record<string, { x: number; y: number }> = {
@@ -87,7 +87,7 @@ export const MAX_BOUNCES = 4;
 
 /** Object pool pre-allocation sizes */
 export const PROJECTILE_POOL_SIZE = 200;
-export const SPACE_OBJECT_POOL_SIZE = 50;
+export const SPACE_OBJECT_POOL_SIZE = 80;
 
 /** Quadtree configuration */
 export const QUADTREE_MAX_OBJECTS = 10;
