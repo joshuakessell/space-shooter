@@ -3,7 +3,7 @@
 // Connects network, input, renderer (Phaser), HUD, audio, FX.
 // ─────────────────────────────────────────────────────────────
 
-import { BET_TIERS, GAME_WIDTH, GAME_HEIGHT, SEAT_COORDINATES, SEAT_COLORS, SPREAD_ANGLE_OFFSET, MAX_BOUNCES } from '@space-shooter/shared';
+import { BET_TIERS, BET_INCREMENT, MIN_BET, MAX_BET, GAME_WIDTH, GAME_HEIGHT, SEAT_COORDINATES, SEAT_COLORS, SPREAD_ANGLE_OFFSET, MAX_BOUNCES } from '@space-shooter/shared';
 import type { WeaponType } from '@space-shooter/shared';
 import { GameClient } from './network/ColyseusClient.js';
 import type {
@@ -88,8 +88,16 @@ async function boot(): Promise<void> {
     audio.playCoinCollect(localTurretX);
   };
 
-  // 2. Audio
+  // 2. Audio — init on first user gesture (browser autoplay policy)
   audio = new AudioManager();
+  const gameContainer = document.getElementById('game-container');
+  if (gameContainer) {
+    const initAudioOnGesture = () => {
+      audio.init();
+      gameContainer.removeEventListener('pointerdown', initAudioOnGesture);
+    };
+    gameContainer.addEventListener('pointerdown', initAudioOnGesture);
+  }
 
   // 3. Input
   input = new InputHandler('game-container');
@@ -100,6 +108,16 @@ async function boot(): Promise<void> {
     currentBet = newBet;
     client.changeBet(currentBet);
     console.log(`[SpaceShooter] Bet changed to $${currentBet}`);
+  };
+
+  // Bet adjustment from arrow keys (Up/Down in increments of 10)
+  input.onBetAdjust = (delta: number) => {
+    const newBet = Math.max(MIN_BET, Math.min(MAX_BET, currentBet + delta));
+    if (newBet !== currentBet) {
+      currentBet = newBet;
+      client.changeBet(currentBet);
+      console.log(`[SpaceShooter] Bet changed to $${currentBet}`);
+    }
   };
 
   // Weapon switching from InputHandler (Keyboard Q, W, E)
@@ -195,11 +213,15 @@ async function boot(): Promise<void> {
       hud.flashInsufficientFunds();
     },
     onRemoteShoot: (seatIndex: number, angle: number, _lockedTargetId?: string) => {
-      // Ghost laser + audio + recoil for remote player
-      // renderer.addGhostLaser(seatIndex, angle); // TODO
-      // renderer.triggerRecoil(seatIndex, angle); // TODO
       const coords = SEAT_COORDINATES[seatIndex];
-      audio.playShoot(coords?.x);
+      if (!coords) return;
+
+      // Remote ghost laser — dimmed color (50% alpha via darker shade)
+      const seatColor = SEAT_COLORS[seatIndex] ?? '#ffffff';
+      mainScene.addGhostLaser(coords.x, coords.y, angle, MAX_BOUNCES, seatColor, 'standard', 0.4);
+
+      // Remote audio — dampened volume
+      audio.playShoot(coords.x, 'standard', 0.35);
     },
     onError: (error: Error) => {
       console.error('[SpaceShooter] Connection error:', error);
@@ -228,9 +250,9 @@ async function boot(): Promise<void> {
       }
     },
     onChainHit: (event: ChainHitEventData) => {
-      // mainScene.addLightningTrail(event.fromX, event.fromY, event.toX, event.toY, event.seatIndex); // TODO
-      if (mainScene) mainScene.fxManager.playImpactSpark(event.toX, event.toY, '#00CCFF');
-      audio.playShoot(event.toX);
+      // Draw lightning arc from source to chain target
+      if (mainScene) mainScene.fxManager.playChainLightning(event.fromX, event.fromY, event.toX, event.toY);
+      audio.playShoot(event.toX, 'lightning', 0.5);
     },
 
     // ─── Feature Target Event Handlers ───
@@ -327,10 +349,7 @@ async function boot(): Promise<void> {
       loadingScreen.style.display = 'none';
   }
   
-  // 6. Bet keyboard shortcuts
-  setupBetControls();
-
-  // 7. Start render loop
+  // 6. Start render loop
   lastFrameTime = performance.now();
   requestAnimationFrame(gameLoop);
   console.log('[SpaceShooter] Ready!');
@@ -345,6 +364,7 @@ function gameLoop(timestamp: number): void {
 
   // Process input
   input.update();
+  input.updateKeyboardAim(deltaSec);
 
   // Update lock-on target tracking
   if (latestState) {
@@ -352,7 +372,7 @@ function gameLoop(timestamp: number): void {
     input.updateLockedTarget(latestState.spaceObjects);
   }
 
-  const aimAngle = input.getAimAngle(localTurretX, localTurretY);
+  const aimAngle = input.getAimAngle(localTurretX, localTurretY) + input.getKeyboardAimOffset();
   const lockedTarget = input.getLockedTarget();
 
   // ─── Pointer move throttle ───
@@ -387,38 +407,8 @@ function gameLoop(timestamp: number): void {
   requestAnimationFrame(gameLoop);
 }
 
-/**
- * Keyboard shortcuts for bet tier cycling.
- */
-function setupBetControls(): void {
-  document.addEventListener('keydown', (e: KeyboardEvent) => {
-    const currentIndex = (BET_TIERS as readonly number[]).indexOf(currentBet);
-    let newBet: number = currentBet;
-
-    switch (e.key) {
-      case 'ArrowUp':
-      case '+':
-      case '=':
-        if (currentIndex < BET_TIERS.length - 1) newBet = BET_TIERS[currentIndex + 1];
-        break;
-      case 'ArrowDown':
-      case '-':
-        if (currentIndex > 0) newBet = BET_TIERS[currentIndex - 1];
-        break;
-      case '1': newBet = BET_TIERS[0]; break;
-      case '2': newBet = BET_TIERS[1]; break;
-      case '3': newBet = BET_TIERS[2]; break;
-      case '4': newBet = BET_TIERS[3]; break;
-      case '5': newBet = BET_TIERS[4]; break;
-    }
-
-    if (newBet !== currentBet) {
-      currentBet = newBet;
-      client.changeBet(currentBet);
-      console.log(`[SpaceShooter] Bet changed to $${currentBet}`);
-    }
-  });
-}
+// Bet controls are now handled by InputHandler.onBetAdjust (arrow keys)
+// and HUDManager.onBetChange (UI buttons). No separate setup needed.
 
 // ─── Bootstrap ───
 boot().catch(console.error);

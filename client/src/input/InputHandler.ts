@@ -53,6 +53,14 @@ export class InputHandler {
   private activeWeaponType: WeaponType = 'standard';
   public onWeaponChange: ((weaponType: WeaponType) => void) | null = null;
 
+  // Keyboard aiming
+  private keyboardAimOffset = 0; // radians offset applied to aim angle
+  private readonly keysHeld = new Set<string>();
+  private spaceHeld = false;
+
+  // Bet adjustment callback
+  public onBetAdjust: ((delta: number) => void) | null = null;
+
   constructor(containerId: string) {
     const container = document.getElementById(containerId);
     if (!container) throw new Error(`Container '${containerId}' not found`);
@@ -218,14 +226,37 @@ export class InputHandler {
     return this.state;
   }
 
-  /** Check if mouse/touch is currently held down (for auto-fire) */
+  /** Check if mouse/touch is held OR spacebar is held (for auto-fire) */
   isMouseDown(): boolean {
-    return this.state.mouseDown;
+    return this.state.mouseDown || this.spaceHeld;
   }
 
-  /** Set up weapon switching keyboard shortcuts: Q=standard, W=spread, E=lightning */
+  /** Call each frame to apply arrow-key turret pivoting */
+  updateKeyboardAim(deltaSec: number): void {
+    const pivotSpeed = 2.0; // radians per second
+    if (this.keysHeld.has('ArrowLeft')) {
+      this.keyboardAimOffset -= pivotSpeed * deltaSec;
+    }
+    if (this.keysHeld.has('ArrowRight')) {
+      this.keyboardAimOffset += pivotSpeed * deltaSec;
+    }
+  }
+
+  /** Get keyboard aim offset (added to mouse aim angle) */
+  getKeyboardAimOffset(): number {
+    return this.keyboardAimOffset;
+  }
+
+  /**
+   * Set up keyboard controls:
+   * Q/W/E = weapon switching
+   * Space = fire
+   * Left/Right arrows = pivot turret aim
+   * Up/Down arrows = adjust bet amount
+   */
   private setupWeaponKeys(): void {
     document.addEventListener('keydown', (e: KeyboardEvent) => {
+      // Weapon switching
       let newWeapon: WeaponType | null = null;
       switch (e.key.toLowerCase()) {
         case 'q': newWeapon = 'standard'; break;
@@ -235,6 +266,33 @@ export class InputHandler {
       if (newWeapon && newWeapon !== this.activeWeaponType) {
         this.activeWeaponType = newWeapon;
         this.onWeaponChange?.(newWeapon);
+      }
+
+      // Spacebar fire
+      if (e.key === ' ') {
+        e.preventDefault();
+        this.spaceHeld = true;
+      }
+
+      // Arrow keys for aim pivot and bet
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        this.keysHeld.add(e.key);
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        this.onBetAdjust?.(10);
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        this.onBetAdjust?.(-10);
+      }
+    });
+
+    document.addEventListener('keyup', (e: KeyboardEvent) => {
+      if (e.key === ' ') this.spaceHeld = false;
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        this.keysHeld.delete(e.key);
       }
     });
   }

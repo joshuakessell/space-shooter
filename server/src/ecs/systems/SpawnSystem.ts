@@ -136,14 +136,17 @@ export class SpawnSystem {
     const FEATURE_DURATION_MULTIPLIER = 2.5;
     const finalDuration = isFeature ? request.duration * FEATURE_DURATION_MULTIPLIER : request.duration;
 
+    // Asteroids always travel in straight lines regardless of wave path type
+    const pathType = type === SpaceObjectType.ASTEROID ? 'linear' : request.pathType;
+
     world.paths.set(entityId, {
-      pathType: request.pathType,
+      pathType,
       controlPoints: request.controlPoints,
       duration: finalDuration,
       timeAlive: 0,
       offset: request.offset,
-      sineAmplitude: request.sineAmplitude,
-      sineFrequency: request.sineFrequency,
+      sineAmplitude: pathType === 'linear' ? 0 : request.sineAmplitude,
+      sineFrequency: pathType === 'linear' ? 0 : request.sineFrequency,
     });
 
     const bound = world.boundsPool.acquire();

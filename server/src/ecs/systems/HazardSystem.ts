@@ -28,6 +28,10 @@ import type { HazardComponent, SpaceObjectComponent } from '../components.js';
 import type { WalletManager } from '../../services/WalletManager.js';
 import type { RoomEconomyManager } from '../../services/RoomEconomyManager.js';
 import type { IGameBalanceConfig } from '../../config/GameBalanceConfig.js';
+import type { IReservePoolProvider } from './SystemRunner.js';
+
+/** Maximum lifetime for any hazard (seconds) — hard safety cap */
+const HAZARD_MAX_LIFETIME_SEC = 12;
 
 // ─── Context Bundle (reduces parameter count) ───
 
@@ -36,6 +40,7 @@ interface HazardContext {
   wallet: WalletManager;
   economy: RoomEconomyManager;
   config: IGameBalanceConfig;
+  reservePool: IReservePoolProvider;
   events: HazardEvent[];
   payouts: HazardTickResult['payouts'];
 }
@@ -100,14 +105,27 @@ export function hazardSystem(
   wallet: WalletManager,
   economy: RoomEconomyManager,
   config: IGameBalanceConfig,
+  reservePool: IReservePoolProvider,
 ): HazardTickResult {
   const events: HazardEvent[] = [];
   const payouts: HazardTickResult['payouts'] = [];
   const delta = FIXED_TIMESTEP_SEC;
-  const ctx: HazardContext = { world, wallet, economy, config, events, payouts };
+  const ctx: HazardContext = { world, wallet, economy, config, reservePool, events, payouts };
 
   for (const [hazardId, hazard] of world.hazards) {
     hazard.timeAlive += delta;
+
+    // Hard safety cap: no hazard runs longer than HAZARD_MAX_LIFETIME_SEC
+    if (hazard.timeAlive > HAZARD_MAX_LIFETIME_SEC) {
+      endHazard(ctx, hazardId, hazard);
+      continue;
+    }
+
+    // Economy gate: if the reserve pool is empty, hazard can't fund any more kills
+    if (reservePool.globalReservePool <= 0 && hazard.hazardType !== 'orbital_laser') {
+      endHazard(ctx, hazardId, hazard);
+      continue;
+    }
 
     switch (hazard.hazardType) {
       case 'blackhole':
@@ -311,6 +329,24 @@ function killTargetForHazard(
   if (!objConfig) return;
 
   const payout = hazard.lockedBetAmount * objConfig.multiplier;
+
+  // ECONOMY FIX: Hazard payouts are funded from the reserve pool + target's
+  // absorbed credits — NOT created from thin air. This keeps hazard payouts
+  // within the economy instead of inflating RTP.
+  const available = obj.absorbedCredits + ctx.reservePool.globalReservePool;
+  if (available < payout) {
+    // Can't fund this kill — skip it (target survives)
+    return;
+  }
+
+  // Deduct from absorbed credits first, then reserve pool
+  if (obj.absorbedCredits >= payout) {
+    obj.absorbedCredits -= payout;
+  } else {
+    const remainder = payout - obj.absorbedCredits;
+    obj.absorbedCredits = 0;
+    ctx.reservePool.globalReservePool = Math.max(0, ctx.reservePool.globalReservePool - remainder);
+  }
 
   ctx.wallet.awardPayout(hazard.ownerSessionId, payout);
   ctx.economy.recordPayout(payout);

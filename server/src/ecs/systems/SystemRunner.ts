@@ -168,7 +168,7 @@ export class SystemRunner {
     this.processFeatureSpawns(featureSpawns);
 
     // ─── 7.6. Hazard: Process active hazards (blackhole pull, drill move, EMP chain, orbital timer) ───
-    const hazardResult = hazardSystem(this.world, this.wallet, this.economy, this.config);
+    const hazardResult = hazardSystem(this.world, this.wallet, this.economy, this.config, this.reservePool);
 
     // ─── 8. Cleanup: Purge destroyed entities ───
     const destroyedIds = cleanupSystem(this.world);
@@ -379,12 +379,22 @@ export class SystemRunner {
 
   /**
    * Handle Cosmic Vault instant payout — no hazard entity needed.
+   * ECONOMY: Vault payout is funded from the reserve pool, not created from nothing.
    */
   private handleVaultSpawn(spawn: FeatureSpawnEvent): void {
     if (!spawn.vaultMultiplier) return;
     const payout = spawn.betAmount * spawn.vaultMultiplier;
-    this.wallet.awardPayout(spawn.playerId, payout);
-    this.economy.recordPayout(payout);
+
+    // Fund from reserve pool — if pool can't cover it, cap the payout
+    const fundedPayout = Math.min(payout, this.reservePool.globalReservePool);
+    if (fundedPayout <= 0) return; // Pool empty — vault fizzles
+
+    this.reservePool.globalReservePool -= fundedPayout;
+    this.wallet.awardPayout(spawn.playerId, fundedPayout);
+    this.economy.recordPayout(fundedPayout);
+
+    // Update the spawn event so GameRoom broadcasts the actual payout
+    spawn.vaultMultiplier = fundedPayout / spawn.betAmount;
 
     this.world.playerBuffs.set(spawn.playerId, {
       buff: 'paused',

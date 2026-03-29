@@ -23,7 +23,7 @@ export class BootScene extends Phaser.Scene {
     // Preload Spritesheets (Entity animations)
     // ───────────────────────────────────────────────────────
     const spritesheetFrames = {
-      'asteroid': { frameWidth: 72, frameHeight: 72, frames: 6 },
+      'asteroid': { frameWidth: 64, frameHeight: 64, frames: 16 },
       'rocket': { frameWidth: 76, frameHeight: 76, frames: 6 },
       'alien_craft': { frameWidth: 84, frameHeight: 84, frames: 6 },
       'space_jelly': { frameWidth: 96, frameHeight: 96, frames: 6 },
@@ -172,7 +172,7 @@ export class BootScene extends Phaser.Scene {
 
     // Frame counts for each entity type
     const frameCountMap: Record<string, number> = {
-      'asteroid': 6,
+      'asteroid': 16,
       'rocket': 6,
       'alien_craft': 6,
       'space_jelly': 6,

@@ -15,7 +15,7 @@
 // trigger secondary AoE (infinite-loop protection).
 // ─────────────────────────────────────────────────────────────
 
-import { SpaceObjectType, CHAIN_LIGHTNING_RADIUS, AOE_BLAST_RADIUS, GAME_WIDTH, GAME_HEIGHT, HAZARD_BUDGET_MIN, HAZARD_BUDGET_MAX, VAULT_MULTIPLIERS } from '@space-shooter/shared';
+import { SpaceObjectType, CHAIN_LIGHTNING_RADIUS, AOE_BLAST_RADIUS, BLACKHOLE_PULL_RADIUS, GAME_WIDTH, GAME_HEIGHT, HAZARD_BUDGET_MIN, HAZARD_BUDGET_MAX, VAULT_MULTIPLIERS, FEATURE_TARGET_TYPES } from '@space-shooter/shared';
 import type { IPayoutEvent, EntityId, HazardType } from '@space-shooter/shared';
 import type { World } from '../World.js';
 import type { CollisionEvent } from './CollisionSystem.js';
@@ -411,9 +411,13 @@ function resolveAoEBlast(
 
 // ─── Feature Target → Hazard Spawn ───
 
+function isStandardTarget(type: string): boolean {
+  return !FEATURE_TARGET_TYPES.has(type as SpaceObjectType);
+}
+
 /** Map feature target type to hazard type */
-const FEATURE_TO_HAZARD: Partial<Record<SpaceObjectType, HazardType | 'vault'>> = {
-  [SpaceObjectType.BLACKHOLE_GEN]: 'blackhole',
+const FEATURE_TO_HAZARD: Partial<Record<SpaceObjectType, HazardType | 'vault' | 'blackhole_jackpot'>> = {
+  [SpaceObjectType.BLACKHOLE_GEN]: 'blackhole_jackpot', // Instant AoE jackpot, not a hazard
   [SpaceObjectType.QUANTUM_DRILL]: 'drill',
   [SpaceObjectType.EMP_RELAY]: 'emp',
   [SpaceObjectType.ORBITAL_CORE]: 'orbital_laser',
@@ -434,6 +438,55 @@ function resolveFeatureSpawn(
 
   const pos = ctx.world.positions.get(objectId);
   if (!pos) return;
+
+  if (hazardType === 'blackhole_jackpot') {
+    // Blackhole Jackpot: instant AoE that destroys all standard targets in
+    // BLACKHOLE_PULL_RADIUS. Total payout = count × bet × 5, funded from pool.
+    const BLACKHOLE_PER_KILL_MULT = 5;
+    let killCount = 0;
+    const destroyedIds: EntityId[] = [];
+
+    for (const [eid, obj] of ctx.world.spaceObjects) {
+      if (obj.isDead || !isStandardTarget(obj.type)) continue;
+      if (eid === objectId) continue; // Don't count self
+      const epos = ctx.world.positions.get(eid);
+      if (!epos) continue;
+      const dx = epos.x - pos.x;
+      const dy = epos.y - pos.y;
+      if (dx * dx + dy * dy > BLACKHOLE_PULL_RADIUS * BLACKHOLE_PULL_RADIUS) continue;
+
+      const killPayout = betAmount * BLACKHOLE_PER_KILL_MULT;
+      // Fund from reserve pool
+      if (ctx.reservePool.globalReservePool < killPayout) continue;
+      ctx.reservePool.globalReservePool -= killPayout;
+
+      obj.isDead = true;
+      ctx.world.pendingDestroy.set(eid, { markedAtTick: ctx.world.currentTick });
+      ctx.wallet.awardPayout(playerId, killPayout);
+      ctx.economy.recordPayout(killPayout);
+      killCount++;
+      destroyedIds.push(eid);
+    }
+
+    if (killCount > 0) {
+      const totalPayout = killCount * betAmount * BLACKHOLE_PER_KILL_MULT;
+      ctx.payouts.push({
+        objectId: String(objectId), playerId,
+        objectType: SpaceObjectType.BLACKHOLE_GEN, betAmount,
+        multiplier: killCount * BLACKHOLE_PER_KILL_MULT, payout: totalPayout,
+      });
+    }
+
+    featureSpawns.push({
+      hazardType: 'blackhole' as HazardType,
+      playerId,
+      betAmount,
+      x: pos.x,
+      y: pos.y,
+      budget: killCount * betAmount * BLACKHOLE_PER_KILL_MULT,
+    });
+    return;
+  }
 
   if (hazardType === 'vault') {
     // Cosmic Vault: weighted CSPRNG selection from fixed multipliers

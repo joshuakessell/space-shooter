@@ -17,6 +17,9 @@ import {
   SEAT_COORDINATES,
   TurretPosition,
   DEFAULT_BET,
+  MIN_BET,
+  MAX_BET,
+  BET_INCREMENT,
   BET_TIERS,
   CLIENT_MESSAGES,
   SERVER_MESSAGES,
@@ -84,7 +87,10 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
   // ─── Security: Rate Limiting ───
   private readonly lastShotTimestamp: Map<string, number> = new Map();
   private readonly rateLimitViolations: Map<string, ViolationTracker> = new Map();
-  private static readonly BET_TIER_SET: ReadonlySet<number> = new Set(BET_TIERS);
+  /** Validate bet is within range and on an increment boundary */
+  private static isValidBet(amount: number): boolean {
+    return amount >= MIN_BET && amount <= MAX_BET && amount % BET_INCREMENT === 0;
+  }
 
   // ─── Reconnection tracking ───
   private readonly reconnections: Map<string, Deferred<Client>> = new Map();
@@ -379,8 +385,8 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
 
     // ─── Security: Bet Tier Validation ───
     const betAmount = this.playerBets.get(sessionId) ?? DEFAULT_BET;
-    if (!GameRoom.BET_TIER_SET.has(betAmount)) {
-      console.warn(`[SECURITY] Invalid bet tier from ${sessionId}: ${betAmount}`);
+    if (!GameRoom.isValidBet(betAmount)) {
+      console.warn(`[SECURITY] Invalid bet from ${sessionId}: ${betAmount}`);
       return; // Silently drop
     }
 
@@ -456,14 +462,11 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
 
   private handleChangeBet(client: Client, message: ChangeBetMessage): void {
     if (!Number.isFinite(message.amount)) return;
-    // Snap to nearest valid bet tier
-    const requestedAmount = Math.floor(message.amount);
-    let bestTier: number = BET_TIERS[0];
-    for (const tier of BET_TIERS) {
-      if (tier <= requestedAmount) bestTier = tier;
-    }
+    // Snap to nearest valid increment within range
+    const snapped = Math.round(message.amount / BET_INCREMENT) * BET_INCREMENT;
+    const clamped = Math.max(MIN_BET, Math.min(MAX_BET, snapped));
 
-    this.playerBets.set(client.sessionId, bestTier);
+    this.playerBets.set(client.sessionId, clamped);
 
     // Update Colyseus state for UI sync
     const player = this.state.players.get(client.sessionId);

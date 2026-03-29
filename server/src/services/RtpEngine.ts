@@ -140,44 +140,27 @@ export class RtpEngine {
     const unclamped = baseChance * globalVolatility * hotSeatModifier * pinataModifier * pityModifier;
     const clamped = Math.min(unclamped, this.config.maxSuccessThreshold);
 
-    // ─── Subsidized Win Check ───
-    const availableFunds = Number(absorbedCredits) + Number(reservePool.globalReservePool);
-    
+    // ─── CSPRNG Roll (sole kill gate) ───
+    // The RNG roll is the ONLY kill decision. Reserve pools are used
+    // for funding payouts (economic recycling), never for forcing kills.
     let destroyed = false;
-    let rngRoll = 0;
+    let rngRoll = this.rng.random();
     let newAbsorbedCredits = absorbedCredits;
 
-    if (availableFunds >= payout) {
-      // Force Win via Reserve Pool Subsidy
-      destroyed = true;
-      rngRoll = 0; // Artificial roll
+    destroyed = rngRoll < clamped;
 
-      // Deduct from pools
+    if (destroyed) {
+      // Kill: drain absorbed credits and reserve pool to fund the payout
       if (newAbsorbedCredits >= payout) {
         newAbsorbedCredits -= payout;
       } else {
         const remainder = payout - newAbsorbedCredits;
         newAbsorbedCredits = 0;
-        reservePool.globalReservePool -= remainder;
+        reservePool.globalReservePool = Math.max(0, reservePool.globalReservePool - remainder);
       }
     } else {
-      // ─── CSPRNG Roll ───
-      rngRoll = this.rng.random();
-      destroyed = rngRoll < clamped;
-
-      if (destroyed) {
-        // Natural win: Attempt to drain pools to prevent inflation
-        if (newAbsorbedCredits >= payout) {
-          newAbsorbedCredits -= payout;
-        } else {
-          const remainder = payout - newAbsorbedCredits;
-          newAbsorbedCredits = 0;
-          reservePool.globalReservePool = Math.max(0, reservePool.globalReservePool - remainder);
-        }
-      } else {
-        // Natural miss: absorb bet
-        newAbsorbedCredits += betAmount;
-      }
+      // Miss: absorb bet into target's piñata counter
+      newAbsorbedCredits += betAmount;
     }
 
     // ─── Update Pity Counter ───

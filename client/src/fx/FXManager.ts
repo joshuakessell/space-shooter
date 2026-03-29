@@ -404,7 +404,52 @@ export class FXManager {
   }
 
   /**
+   * Chain lightning arc — fractal bolt between two points with impact sparks.
+   * Used for lightning weapon chain hits. Lighter than playEmpChain (no screen flash).
+   */
+  playChainLightning(fromX: number, fromY: number, toX: number, toY: number): void {
+      if (!this.scene) return;
+
+      const graphics = this.scene.add.graphics();
+      graphics.setDepth(50);
+      graphics.lineStyle(2, 0x00ffff, 0.8);
+      graphics.blendMode = Phaser.BlendModes.ADD;
+
+      const drawBolt = (x1: number, y1: number, x2: number, y2: number, depth: number) => {
+          if (depth === 0) {
+              graphics.lineTo(x2, y2);
+              return;
+          }
+          const midX = (x1 + x2) / 2;
+          const midY = (y1 + y2) / 2;
+          const offset = (Math.random() - 0.5) * 40 * (depth / 3);
+          const angle = Math.atan2(y2 - y1, x2 - x1);
+          const px = midX + Math.cos(angle + Math.PI / 2) * offset;
+          const py = midY + Math.sin(angle + Math.PI / 2) * offset;
+          drawBolt(x1, y1, px, py, depth - 1);
+          drawBolt(px, py, x2, y2, depth - 1);
+      };
+
+      graphics.beginPath();
+      graphics.moveTo(fromX, fromY);
+      drawBolt(fromX, fromY, toX, toY, 3);
+      graphics.strokePath();
+
+      this.scene.tweens.add({
+          targets: graphics,
+          alpha: 0,
+          duration: 250,
+          onComplete: () => graphics.destroy()
+      });
+
+      // Spark at destination
+      this.sparkEmitter.setParticleTint(0x00ccff);
+      this.sparkEmitter.explode(8, toX, toY);
+  }
+
+  /**
    * EMP chain — fractal lightning bolt + impact sparks + brief blue screen flash
+   * Used for EMP feature activation (more dramatic than chain lightning).
    */
   playEmpChain(fromX: number, fromY: number, toX: number, toY: number): void {
       if (!this.scene) return;

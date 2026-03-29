@@ -89,129 +89,147 @@ export interface IObjectTypeConfig {
 // ─────────────────────────────────────────────────────────────
 
 export const GAME_BALANCE_CONFIG: IGameBalanceConfig = {
+  // Base RTP at 0.98 — modifiers and volatility swing around this center.
+  // EATING (0.85x) creates mild lulls, FRENZY (1.4x) creates exciting bursts.
+  // The distribution shape is: features > bosses > mid-tier > commons.
   targetRtp: 0.98,
-  maxSuccessThreshold: 0.85, // Clamp: no shot is ever >85% guaranteed
+  maxSuccessThreshold: 0.75, // Let common fish die reasonably while still preventing guarantees
 
   volatility: {
     phases: {
-      [VolatilityPhase.EATING]:   0.7,
-      [VolatilityPhase.BASELINE]: 1,
-      [VolatilityPhase.FRENZY]:   1.5,
+      [VolatilityPhase.EATING]:   0.85,  // Mild lull — kills slow by 15%, player notices but isn't frustrated
+      [VolatilityPhase.BASELINE]: 1.0,
+      [VolatilityPhase.FRENZY]:   1.4,   // Exciting burst — 40% more kills, screen lights up
     },
-    eatingToBaselineProfitRatio: 0.05,  // Exit EATING when profit < 5% of credits_in
-    baselineToFrenzyProfitRatio: 0.15,  // Enter FRENZY when profit > 15% of credits_in
-    frenzyDurationTicks: 200,            // ~10 seconds at 20 ticks/sec
-    minTicksBetweenTransitions: 100,     // ~5 second cooldown
+    eatingToBaselineProfitRatio: 0.03,   // Exit EATING quickly when profit thins to 3%
+    baselineToFrenzyProfitRatio: 0.06,   // Enter FRENZY when house is up 6% — triggers often
+    frenzyDurationTicks: 160,            // ~8 seconds — noticeable burst
+    minTicksBetweenTransitions: 60,      // ~3 second cooldown — fast oscillation
   },
 
   hotSeat: {
-    boostMultiplier: 1.3,
-    penaltyMultiplier: 0.94,
-    rotationIntervalTicks: 2400, // ~2 minutes at 20 ticks/sec
+    boostMultiplier: 1.12,
+    penaltyMultiplier: 0.97,
+    rotationIntervalTicks: 1200, // ~1 minute
   },
 
   pinata: {
-    maxModifier: 3,    // Up to 3x boost as credits accumulate
-    curveExponent: 1.5,  // Between linear and quadratic
+    maxModifier: 1.5,      // Moderate boost as credits accumulate
+    curveExponent: 2.0,    // Quadratic — boost ramps late
   },
 
   pity: {
-    missThreshold: 30,
-    pityModifier: 2,
-    appliesToMaxMultiplier: 10, // Only for targets ≤ 10x
+    missThreshold: 50,     // Safety net after long dry spell
+    pityModifier: 1.3,     // Gentle nudge
+    appliesToMaxMultiplier: 5, // Low-tier targets only
   },
 
   security: {
-    maxFireRateMs: 150,                // 150ms cooldown per shot
-    rateLimitViolationThreshold: 10,   // 10 violations → auto-kick
-    rateLimitWindowMs: 3000,           // 3 second sliding window
-    reconnectionTimeoutSec: 30,        // 30 second reconnection window
+    maxFireRateMs: 150,
+    rateLimitViolationThreshold: 10,
+    rateLimitWindowMs: 3000,
+    reconnectionTimeoutSec: 30,
   },
 
+  // ─── Economy Design Philosophy ───
+  // Common fish (asteroid, rocket, alien_craft) are "ammo sinks" — low multipliers
+  // mean players slowly drain credits shooting them. Winning comes from:
+  //   1. Mid-tier kills (space_jelly through meteor_shower) — satisfying medium hits
+  //   2. Boss kills (nebula_beast, cosmic_whale) — rare jackpot moments
+  //   3. Feature triggers (blackhole, drill, emp, orbital, vault) — spectacular bonus rounds
+  //
+  // destroyProbability = targetRtp / multiplier (config invariant for tests)
   objectTypes: {
+    // ─── Common "ammo sink" fish — frequent spawns, low reward ───
     [SpaceObjectType.ASTEROID]: {
       multiplier: 2,
       destroyProbability: 0.49,    // 2 × 0.49 = 0.98
-      collisionRadius: 36,
-      spawnWeight: 24,
+      collisionRadius: 30,
+      spawnWeight: 30,
     },
     [SpaceObjectType.ROCKET]: {
       multiplier: 3,
       destroyProbability: 0.3267,  // 3 × 0.3267 ≈ 0.98
-      collisionRadius: 38,
-      spawnWeight: 22,
+      collisionRadius: 32,
+      spawnWeight: 25,
     },
     [SpaceObjectType.ALIEN_CRAFT]: {
-      multiplier: 5,
-      destroyProbability: 0.196,   // 5 × 0.196 = 0.98
-      collisionRadius: 42,
-      spawnWeight: 18,
+      multiplier: 4,
+      destroyProbability: 0.245,   // 4 × 0.245 = 0.98
+      collisionRadius: 35,
+      spawnWeight: 20,
     },
+    // ─── Mid-tier "bread and butter" — where average wins come from ───
     [SpaceObjectType.SPACE_JELLY]: {
-      multiplier: 8,
-      destroyProbability: 0.1225,  // 8 × 0.1225 = 0.98
-      collisionRadius: 48,
-      spawnWeight: 14,
+      multiplier: 10,
+      destroyProbability: 0.098,   // 10 × 0.098 = 0.98
+      collisionRadius: 40,
+      spawnWeight: 12,
     },
     [SpaceObjectType.ALIEN_CREATURE]: {
-      multiplier: 15,
-      destroyProbability: 0.0653,  // 15 × 0.0653 ≈ 0.98
-      collisionRadius: 55,
-      spawnWeight: 10,
+      multiplier: 20,
+      destroyProbability: 0.049,   // 20 × 0.049 = 0.98
+      collisionRadius: 45,
+      spawnWeight: 8,
     },
     [SpaceObjectType.METEOR_SHOWER]: {
-      multiplier: 25,
-      destroyProbability: 0.0392,  // 25 × 0.0392 = 0.98
-      collisionRadius: 62,
-      spawnWeight: 7,
+      multiplier: 40,
+      destroyProbability: 0.0245,  // 40 × 0.0245 = 0.98
+      collisionRadius: 50,
+      spawnWeight: 5,
     },
+    // ─── Boss-tier "jackpot" — rare, massive payouts, crowd goes wild ───
     [SpaceObjectType.NEBULA_BEAST]: {
-      multiplier: 50,
-      destroyProbability: 0.0196,  // 50 × 0.0196 = 0.98
-      collisionRadius: 80,
-      spawnWeight: 4,
-    },
-    [SpaceObjectType.COSMIC_WHALE]: {
-      multiplier: 100,
-      destroyProbability: 0.0098,  // 100 × 0.0098 = 0.98
-      collisionRadius: 100,
+      multiplier: 80,
+      destroyProbability: 0.01225, // 80 × 0.01225 = 0.98
+      collisionRadius: 65,
       spawnWeight: 3,
     },
-    [SpaceObjectType.SUPERNOVA_BOMB]: {
-      multiplier: 20,
-      destroyProbability: 0.049,   // 20 × 0.049 = 0.98 (AoE on kill)
-      collisionRadius: 60,
+    [SpaceObjectType.COSMIC_WHALE]: {
+      multiplier: 200,
+      destroyProbability: 0.0049,  // 200 × 0.0049 = 0.98
+      collisionRadius: 80,
       spawnWeight: 1.5,
     },
+    // ─── Feature targets — rare and exciting, trigger bonus rounds ───
+    // These should feel SPECIAL when they appear. Hazard payouts bypass RTP,
+    // so spawn frequency must be low enough that total hazard output stays
+    // within the overall economy. Target: ~2-3% of spawns are features.
+    [SpaceObjectType.SUPERNOVA_BOMB]: {
+      multiplier: 15,
+      destroyProbability: 0.0653,  // 15 × 0.0653 ≈ 0.98 (AoE on kill)
+      collisionRadius: 50,
+      spawnWeight: 0.8,            // Rare — exciting when it appears
+    },
     [SpaceObjectType.BLACKHOLE_GEN]: {
-      multiplier: 25,
-      destroyProbability: 0.0392,
-      collisionRadius: 113,
-      spawnWeight: 0.2,
+      multiplier: 10,
+      destroyProbability: 0.098,
+      collisionRadius: 55,
+      spawnWeight: 0.5,
     },
     [SpaceObjectType.QUANTUM_DRILL]: {
-      multiplier: 20,
-      destroyProbability: 0.049,
-      collisionRadius: 100,
-      spawnWeight: 0.25,
+      multiplier: 10,
+      destroyProbability: 0.098,
+      collisionRadius: 55,
+      spawnWeight: 0.5,
     },
     [SpaceObjectType.EMP_RELAY]: {
-      multiplier: 15,
-      destroyProbability: 0.0653,
-      collisionRadius: 106,
-      spawnWeight: 0.3,
+      multiplier: 10,
+      destroyProbability: 0.098,
+      collisionRadius: 50,
+      spawnWeight: 0.6,
     },
     [SpaceObjectType.ORBITAL_CORE]: {
-      multiplier: 30,
-      destroyProbability: 0.0327,
-      collisionRadius: 125,
-      spawnWeight: 0.15,
+      multiplier: 15,
+      destroyProbability: 0.0653,
+      collisionRadius: 55,
+      spawnWeight: 0.3,
     },
     [SpaceObjectType.COSMIC_VAULT]: {
-      multiplier: 20,
-      destroyProbability: 0.049,
-      collisionRadius: 119,
-      spawnWeight: 0.2,
+      multiplier: 10,
+      destroyProbability: 0.098,
+      collisionRadius: 55,
+      spawnWeight: 0.4,
     },
   },
 };

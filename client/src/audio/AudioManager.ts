@@ -70,19 +70,19 @@ export class AudioManager {
     // Initialize laser sounds
     this.laserStandard = new Howl({
       src: ['assets/audio/sfx/laser_standard.mp3'],
-      volume: 0.3,
+      volume: 0.12,
       onloaderror: () => this.trackLoadError('laser_standard.mp3'),
     });
 
     this.laserSpread = new Howl({
       src: ['assets/audio/sfx/laser_spread.mp3'],
-      volume: 0.3,
+      volume: 0.12,
       onloaderror: () => this.trackLoadError('laser_spread.mp3'),
     });
 
     this.laserLightning = new Howl({
       src: ['assets/audio/sfx/laser_lightning.mp3'],
-      volume: 0.3,
+      volume: 0.12,
       onloaderror: () => this.trackLoadError('laser_lightning.mp3'),
     });
 
@@ -117,7 +117,7 @@ export class AudioManager {
     // Initialize utility sounds
     this.coinCollect = new Howl({
       src: ['assets/audio/sfx/coin_collect.mp3'],
-      volume: 0.4,
+      volume: 0.15,
       onloaderror: () => this.trackLoadError('coin_collect.mp3'),
     });
 
@@ -197,9 +197,10 @@ export class AudioManager {
   }
 
   /**
-   * Play a sound with spatial panning and rate control.
+   * Play a sound with spatial panning, rate control, and optional volume multiplier.
+   * @param volumeScale - Multiplier on the sound's base volume (0-1). Used to dampen remote player sounds.
    */
-  private playSpatialSound(sound: Howl, x?: number, rate = 1.0): number | undefined {
+  private playSpatialSound(sound: Howl, x?: number, rate = 1.0, volumeScale = 1.0): number | undefined {
     if (!this.isInitialized) return undefined;
 
     const id = sound.play();
@@ -207,6 +208,11 @@ export class AudioManager {
 
     // Apply playback rate
     sound.rate(rate, id);
+
+    // Apply volume scale (for dampening remote player sounds)
+    if (volumeScale < 1.0) {
+      sound.volume(sound.volume() * volumeScale, id);
+    }
 
     // Apply spatial panning if X position provided
     if (x !== undefined) {
@@ -221,7 +227,7 @@ export class AudioManager {
    * Play a laser sound based on weapon type.
    * Supports: 'standard', 'spread', 'lightning'
    */
-  public playShoot(x?: number, weaponType: string = 'standard'): void {
+  public playShoot(x?: number, weaponType: string = 'standard', volumeScale = 1.0): void {
     if (!this.isInitialized) return;
 
     let laserSound: Howl;
@@ -238,7 +244,7 @@ export class AudioManager {
         break;
     }
 
-    this.playSpatialSound(laserSound, x);
+    this.playSpatialSound(laserSound, x, 1.0, volumeScale);
   }
 
   /**

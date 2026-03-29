@@ -56,6 +56,8 @@ interface SpaceObjectContainer {
   sprite: Phaser.GameObjects.Sprite;
   multText: Phaser.GameObjects.Text;
   container: Phaser.GameObjects.Container;
+  /** Per-instance rotation speed in radians/sec (asteroids only) */
+  rotationSpeed?: number;
 }
 
 export class MainScene extends Phaser.Scene {
@@ -83,6 +85,7 @@ export class MainScene extends Phaser.Scene {
     age: number;
     color: string;
     weaponType: string;
+    alpha: number;
     active: boolean;
   } | null> = new Array(MainScene.MAX_GHOST_LASERS).fill(null);
   private ghostLaserHead = 0;
@@ -245,10 +248,25 @@ export class MainScene extends Phaser.Scene {
         const container = this.add.container(obj.x, obj.y);
         container.setDepth(20);
 
-        // Create sprite with animation
+        const isAsteroid = obj.objectType === SpaceObjectType.ASTEROID;
+
+        // Create sprite — asteroids are static images, everything else is animated
         const sprite = this.add.sprite(0, 0, spriteKey);
         sprite.setOrigin(0.5, 0.5);
-        sprite.play(`${spriteKey}_idle`);
+        if (!isAsteroid) {
+          sprite.play(`${spriteKey}_idle`);
+        }
+
+        // Asteroids: random scale variation (0.6x to 1.3x)
+        let rotationSpeed = 0;
+        if (isAsteroid) {
+          const scale = 0.6 + Math.random() * 0.7;
+          sprite.setScale(scale);
+          // Random rotation speed: -2 to +2 rad/s (some spin fast, some slow, some reversed)
+          rotationSpeed = (Math.random() - 0.5) * 4;
+          // Random initial rotation so they don't all start the same
+          sprite.setRotation(Math.random() * Math.PI * 2);
+        }
 
         // Add multiplier text below sprite
         const multText = this.add.text(0, 50, `${obj.multiplier}x`, {
@@ -281,7 +299,7 @@ export class MainScene extends Phaser.Scene {
           });
         }
 
-        this.spaceObjectSprites.set(key, { sprite, multText, container });
+        this.spaceObjectSprites.set(key, { sprite, multText, container, rotationSpeed });
       }
 
       // Update position with lerp smoothing
@@ -289,6 +307,11 @@ export class MainScene extends Phaser.Scene {
       const lerpFactor = 0.15 * (deltaMs / 16.66);
       objContainer.container.x += (obj.x - objContainer.container.x) * lerpFactor;
       objContainer.container.y += (obj.y - objContainer.container.y) * lerpFactor;
+
+      // Asteroids: rotate the sprite each frame
+      if (objContainer.rotationSpeed) {
+        objContainer.sprite.rotation += objContainer.rotationSpeed * (deltaMs / 1000);
+      }
 
       // Update multiplier text
       objContainer.multText.setText(`${obj.multiplier}x`);
@@ -405,7 +428,8 @@ export class MainScene extends Phaser.Scene {
     angle: number,
     bounces: number,
     color: string,
-    weaponType: string
+    weaponType: string,
+    alpha = 1.0,
   ) {
     // Ring buffer: overwrite oldest slot at head, O(1)
     this.ghostLaserBuffer[this.ghostLaserHead] = {
@@ -417,6 +441,7 @@ export class MainScene extends Phaser.Scene {
       age: 0,
       color,
       weaponType,
+      alpha,
       active: true,
     };
     this.ghostLaserHead = (this.ghostLaserHead + 1) % MainScene.MAX_GHOST_LASERS;
@@ -519,17 +544,22 @@ export class MainScene extends Phaser.Scene {
       }
 
       if (hasHit) {
+        // Lightning impacts show a cyan spark at the hit point
+        if (l.weaponType === 'lightning') {
+          this.fxManager.playImpactSpark(l.x, l.y, '#00CCFF');
+        }
         l.active = false;
         this.ghostLaserCount--;
         continue;
       }
 
-      // Draw laser based on weapon type
+      // Draw laser based on weapon type (alpha dims remote player shots)
+      const a = l.alpha;
       const colorHex = Phaser.Display.Color.HexStringToColor(l.color).color;
       this.ghostLaserGraphics.beginPath();
 
       if (l.weaponType === 'lightning') {
-        this.ghostLaserGraphics.lineStyle(3, 0x00ffff, 1);
+        this.ghostLaserGraphics.lineStyle(3, 0x00ffff, a);
         let px = l.x;
         let py = l.y;
         this.ghostLaserGraphics.moveTo(px, py);
@@ -545,12 +575,12 @@ export class MainScene extends Phaser.Scene {
           );
         }
       } else if (l.weaponType === 'spread') {
-        this.ghostLaserGraphics.lineStyle(8, colorHex, 1);
+        this.ghostLaserGraphics.lineStyle(8, colorHex, a);
         this.ghostLaserGraphics.moveTo(l.x, l.y);
         this.ghostLaserGraphics.lineTo(l.x - Math.cos(l.angle) * 20, l.y - Math.sin(l.angle) * 20);
       } else {
         // Standard
-        this.ghostLaserGraphics.lineStyle(4, colorHex, 1);
+        this.ghostLaserGraphics.lineStyle(4, colorHex, a);
         this.ghostLaserGraphics.moveTo(l.x, l.y);
         this.ghostLaserGraphics.lineTo(l.x - Math.cos(l.angle) * 40, l.y - Math.sin(l.angle) * 40);
       }

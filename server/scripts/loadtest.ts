@@ -1,11 +1,11 @@
 import { Client, Room } from '@colyseus/sdk';
 import { SERVER_MESSAGES, CLIENT_MESSAGES, BET_TIERS } from '@space-shooter/shared';
 
-const BOTS_COUNT = 30;
+const BOTS_COUNT = 60;
 const ENDPOINT = process.env.SERVER_URL || 'http://127.0.0.1:2567';
 
 // Global Trackers
-const MAX_SHOTS = 50000;
+const MAX_SHOTS = 100000;
 
 const stats = {
   shotsFired: 0,
@@ -128,6 +128,8 @@ class BotManager {
         this.trackWin(message, SERVER_MESSAGES.FEATURE_DRILL_BOUNCE);
       }
     });
+    this.room.onMessage(SERVER_MESSAGES.FEATURE_ORBITAL_LASER, () => {});
+    this.room.onMessage(SERVER_MESSAGES.FEATURE_BLACKHOLE_TICK, () => {});
   }
 
   private trackWin(message: any, source: string) {

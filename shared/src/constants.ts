@@ -20,14 +20,18 @@ export const FIXED_TIMESTEP_SEC = FIXED_TIMESTEP_MS / 1000; // 0.05s
 /** Maximum players per room */
 export const MAX_PLAYERS = 6;
 
-/** Betting tiers — casino-standard discrete bet amounts */
-export const BET_TIERS = [10, 50, 100, 500, 1000] as const;
-export type BetTier = (typeof BET_TIERS)[number];
+/** Betting: $10 to $300 in increments of $10 */
+export const BET_INCREMENT = 10;
+export const MIN_BET = 10;
+export const MAX_BET = 300;
+export const DEFAULT_BET = MIN_BET;
 
-/** Betting limits (derived from tiers) */
-export const MIN_BET = BET_TIERS[0];
-export const MAX_BET = BET_TIERS.at(-1)!;
-export const DEFAULT_BET = BET_TIERS[0];
+/** All valid bet tiers (generated from range) */
+export const BET_TIERS: readonly number[] = Array.from(
+  { length: (MAX_BET - MIN_BET) / BET_INCREMENT + 1 },
+  (_, i) => MIN_BET + i * BET_INCREMENT,
+);
+export type BetTier = number;
 
 /** Target Return-to-Player percentage */
 export const TARGET_RTP = 0.98;
@@ -48,15 +52,15 @@ export const MIN_OBJECT_RADIUS = 20;
 export const MAX_PROJECTILES_PER_PLAYER = 20;
 
 /** Maximum simultaneous space objects on screen */
-export const MAX_SPACE_OBJECTS = 58;
+export const MAX_SPACE_OBJECTS = 78;
 
 /** Space object base speed range (pixels per second) */
 export const OBJECT_MIN_SPEED = 70;
 export const OBJECT_MAX_SPEED = 220;
 
 /** Spawn interval range in ticks */
-export const SPAWN_MIN_INTERVAL_TICKS = 3;   // 150ms
-export const SPAWN_MAX_INTERVAL_TICKS = 12;  // 600ms
+export const SPAWN_MIN_INTERVAL_TICKS = 1;   // 50ms — fast spawns to keep targets plentiful
+export const SPAWN_MAX_INTERVAL_TICKS = 3;   // 150ms
 
 /** Turret positions: pixel coordinates for each of the 6 turret slots */
 export const TURRET_POSITIONS: Record<string, { x: number; y: number }> = {
@@ -139,20 +143,20 @@ export const BLACKHOLE_PULL_SPEED = 200;
 export const DRILL_SPEED = 600;
 
 /** Quantum drill max duration (seconds) */
-export const DRILL_MAX_DURATION_SEC = 10;
+export const DRILL_MAX_DURATION_SEC = 8;
 
 /** EMP relay: staggered kill delay per victim (ms) */
 export const EMP_CHAIN_DELAY_MS = 100;
 
 /** Orbital laser buff duration (seconds) */
-export const ORBITAL_LASER_DURATION_SEC = 10;
+export const ORBITAL_LASER_DURATION_SEC = 8;
 
 /** Orbital laser beam width (pixels) */
 export const ORBITAL_LASER_WIDTH = 100;
 
-/** Cosmic vault roulette multiplier tiers */
-export const VAULT_MULTIPLIERS = [50, 100, 250, 500, 1000] as const;
+/** Cosmic vault roulette multiplier tiers (weighted toward lower tiers) */
+export const VAULT_MULTIPLIERS = [20, 30, 50, 80, 100, 150] as const;
 
-/** Hazard payout budget range (multiplied by bet) */
-export const HAZARD_BUDGET_MIN = 100;
-export const HAZARD_BUDGET_MAX = 400;
+/** Hazard payout budget range (multiplied by bet) — exciting but bounded */
+export const HAZARD_BUDGET_MIN = 30;
+export const HAZARD_BUDGET_MAX = 80;

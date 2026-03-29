@@ -90,31 +90,32 @@ export class WaveManager {
   // ─── Wave Generators ───
 
   /**
-   * ASTEROID_BELT: 8-16 asteroids spawning 6 ticks (300ms) apart
-   * on the exact same sine wave path — creates a snake-like line.
+   * ASTEROID_BELT: 4-8 individual asteroids, each on its own straight-line
+   * path with independently randomized speed, entry point, and exit point.
+   * Staggered spawns so they drift across screen at different rates.
    */
   private generateAsteroidBelt(): SpawnRequest[] {
-    const count = this.rng.randomRange(8, 17);
+    const count = this.rng.randomRange(4, 9);
     const requests: SpawnRequest[] = [];
 
-    // Shared sine path: straight line across screen with wave
-    const entryEdge = this.rng.randomRange(0, 4);
-    const start = this.pointOnEdge(entryEdge);
-    const end = this.pointOnEdge((entryEdge + 2) % 4);
-    const amplitude = this.rng.randomFloat(60, 140);
-    const frequency = this.rng.randomFloat(2, 4);
-    const duration = this.rng.randomFloat(8000, 14000);
-
     for (let i = 0; i < count; i++) {
+      const entryEdge = this.rng.randomRange(0, 4);
+      const start = this.pointOnEdge(entryEdge);
+      // Exit on opposite side with slight lateral variation
+      const exitEdge = (entryEdge + 2) % 4;
+      const end = this.pointOnEdge(exitEdge);
+      // Per-asteroid speed variation: 6-16 seconds to cross screen
+      const duration = this.rng.randomFloat(6000, 16000);
+
       requests.push({
         type: SpaceObjectType.ASTEROID,
-        pathType: 'sine',
+        pathType: 'linear',
         controlPoints: [start, end],
         duration,
         offset: ZERO_OFFSET,
-        sineAmplitude: amplitude,
-        sineFrequency: frequency,
-        delayTicks: i * 6, // 300ms stagger at 20 ticks/sec
+        sineAmplitude: 0,
+        sineFrequency: 0,
+        delayTicks: this.rng.randomRange(0, 20), // Random stagger 0-1s
       });
     }
 
