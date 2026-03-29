@@ -25,7 +25,7 @@ export class BootScene extends Phaser.Scene {
     const spritesheetFrames = {
       'asteroid': { frameWidth: 64, frameHeight: 64, frames: 16 },
       'rocket': { frameWidth: 76, frameHeight: 76, frames: 16 },
-      'alien_craft': { frameWidth: 84, frameHeight: 84, frames: 6 },
+      'alien_craft': { frameWidth: 84, frameHeight: 84, frames: 16 },
       'space_jelly': { frameWidth: 96, frameHeight: 96, frames: 6 },
       'alien_creature': { frameWidth: 110, frameHeight: 110, frames: 6 },
       'meteor_shower': { frameWidth: 124, frameHeight: 124, frames: 6 },
@@ -174,7 +174,7 @@ export class BootScene extends Phaser.Scene {
     const frameCountMap: Record<string, number> = {
       'asteroid': 16,
       'rocket': 16,
-      'alien_craft': 6,
+      'alien_craft': 16,
       'space_jelly': 6,
       'alien_creature': 6,
       'meteor_shower': 6,
