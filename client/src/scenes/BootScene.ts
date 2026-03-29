@@ -244,7 +244,7 @@ export class BootScene extends Phaser.Scene {
       key: 'laser_standard_fire',
       frames: this.anims.generateFrameNumbers('laser_standard', {
         start: 0,
-        end: 3,
+        end: 7,
       }),
       frameRate: 10,
       repeat: 0,
@@ -254,7 +254,7 @@ export class BootScene extends Phaser.Scene {
       key: 'laser_spread_fire',
       frames: this.anims.generateFrameNumbers('laser_spread', {
         start: 0,
-        end: 3,
+        end: 7,
       }),
       frameRate: 10,
       repeat: 0,
@@ -264,7 +264,7 @@ export class BootScene extends Phaser.Scene {
       key: 'laser_lightning_fire',
       frames: this.anims.generateFrameNumbers('laser_lightning', {
         start: 0,
-        end: 3,
+        end: 7,
       }),
       frameRate: 12,
       repeat: 0,
