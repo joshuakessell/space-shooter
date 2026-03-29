@@ -211,7 +211,7 @@ export class BootScene extends Phaser.Scene {
       key: 'explosion_small_burst',
       frames: this.anims.generateFrameNumbers('explosion_small', {
         start: 0,
-        end: 7,
+        end: 15,
       }),
       frameRate: 12,
       repeat: 0,
@@ -221,7 +221,7 @@ export class BootScene extends Phaser.Scene {
       key: 'explosion_medium_burst',
       frames: this.anims.generateFrameNumbers('explosion_medium', {
         start: 0,
-        end: 7,
+        end: 15,
       }),
       frameRate: 12,
       repeat: 0,
@@ -231,7 +231,7 @@ export class BootScene extends Phaser.Scene {
       key: 'explosion_boss_burst',
       frames: this.anims.generateFrameNumbers('explosion_boss', {
         start: 0,
-        end: 9,
+        end: 19,
       }),
       frameRate: 12,
       repeat: 0,
