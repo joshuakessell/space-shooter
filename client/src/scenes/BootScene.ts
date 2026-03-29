@@ -31,12 +31,12 @@ export class BootScene extends Phaser.Scene {
       'meteor_shower': { frameWidth: 124, frameHeight: 124, frames: 20 },
       'nebula_beast': { frameWidth: 160, frameHeight: 160, frames: 24 },
       'cosmic_whale': { frameWidth: 200, frameHeight: 200, frames: 24 },
-      'supernova_bomb': { frameWidth: 120, frameHeight: 120, frames: 6 },
-      'blackhole_gen': { frameWidth: 226, frameHeight: 226, frames: 8 },
-      'quantum_drill': { frameWidth: 200, frameHeight: 200, frames: 6 },
-      'emp_relay': { frameWidth: 212, frameHeight: 212, frames: 6 },
-      'orbital_core': { frameWidth: 250, frameHeight: 250, frames: 8 },
-      'cosmic_vault': { frameWidth: 238, frameHeight: 238, frames: 8 },
+      'supernova_bomb': { frameWidth: 120, frameHeight: 120, frames: 16 },
+      'blackhole_gen': { frameWidth: 226, frameHeight: 226, frames: 24 },
+      'quantum_drill': { frameWidth: 200, frameHeight: 200, frames: 20 },
+      'emp_relay': { frameWidth: 212, frameHeight: 212, frames: 20 },
+      'orbital_core': { frameWidth: 250, frameHeight: 250, frames: 24 },
+      'cosmic_vault': { frameWidth: 238, frameHeight: 238, frames: 24 },
     };
 
     // Load entity spritesheets
@@ -180,12 +180,12 @@ export class BootScene extends Phaser.Scene {
       'meteor_shower': 20,
       'nebula_beast': 24,
       'cosmic_whale': 24,
-      'supernova_bomb': 6,
-      'blackhole_gen': 8,
-      'quantum_drill': 6,
-      'emp_relay': 6,
-      'orbital_core': 8,
-      'cosmic_vault': 8,
+      'supernova_bomb': 16,
+      'blackhole_gen': 24,
+      'quantum_drill': 20,
+      'emp_relay': 20,
+      'orbital_core': 24,
+      'cosmic_vault': 24,
     };
 
     // Create idle animations for each entity type
@@ -277,7 +277,7 @@ export class BootScene extends Phaser.Scene {
       key: 'coin_spin',
       frames: this.anims.generateFrameNumbers('coin', {
         start: 0,
-        end: 5,
+        end: 11,
       }),
       frameRate: 12,
       repeat: -1,
