@@ -82,10 +82,20 @@ export class BootScene extends Phaser.Scene {
     });
 
     // ───────────────────────────────────────────────────────
-    // Preload Single-frame Sprites (Turrets)
+    // Preload Turret Sprites
     // ───────────────────────────────────────────────────────
     this.load.image('turret', '/assets/sprites/turret.png');
-    this.load.image('turret_barrel', '/assets/sprites/turret_barrel.png');
+
+    // Animated barrel spritesheets (one per weapon type)
+    const turretBarrels = {
+      'turret_barrel_standard': { frameWidth: 48, frameHeight: 48 },
+      'turret_barrel_spread': { frameWidth: 48, frameHeight: 48 },
+      'turret_barrel_lightning': { frameWidth: 48, frameHeight: 48 },
+    };
+
+    for (const [key, config] of Object.entries(turretBarrels)) {
+      this.load.spritesheet(key, `/assets/spritesheets/${key}.png`, config);
+    }
 
     // ───────────────────────────────────────────────────────
     // Preload Background
@@ -269,6 +279,27 @@ export class BootScene extends Phaser.Scene {
       frameRate: 12,
       repeat: 0,
     });
+
+    // ───────────────────────────────────────────────────────
+    // Turret Barrel Animations (looping idle for each weapon type)
+    // ───────────────────────────────────────────────────────
+    const barrelAnims = [
+      { key: 'turret_barrel_standard_idle', sheet: 'turret_barrel_standard' },
+      { key: 'turret_barrel_spread_idle', sheet: 'turret_barrel_spread' },
+      { key: 'turret_barrel_lightning_idle', sheet: 'turret_barrel_lightning' },
+    ];
+
+    for (const ba of barrelAnims) {
+      this.anims.create({
+        key: ba.key,
+        frames: this.anims.generateFrameNumbers(ba.sheet, {
+          start: 0,
+          end: 7,
+        }),
+        frameRate: 8,
+        repeat: -1,
+      });
+    }
 
     // ───────────────────────────────────────────────────────
     // Coin Spin Animation

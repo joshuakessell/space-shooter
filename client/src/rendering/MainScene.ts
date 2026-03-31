@@ -58,6 +58,11 @@ interface SpaceObjectContainer {
   container: Phaser.GameObjects.Container;
   /** Per-instance rotation speed in radians/sec (asteroids only) */
   rotationSpeed?: number;
+  /** Previous server position for heading calculation */
+  prevX: number;
+  prevY: number;
+  /** Whether this sprite should face its travel direction */
+  faceHeading: boolean;
 }
 
 export class MainScene extends Phaser.Scene {
@@ -299,7 +304,8 @@ export class MainScene extends Phaser.Scene {
           });
         }
 
-        this.spaceObjectSprites.set(key, { sprite, multText, container, rotationSpeed });
+        const faceHeading = !isAsteroid;
+        this.spaceObjectSprites.set(key, { sprite, multText, container, rotationSpeed, prevX: obj.x, prevY: obj.y, faceHeading });
       }
 
       // Update position with lerp smoothing
@@ -308,9 +314,22 @@ export class MainScene extends Phaser.Scene {
       objContainer.container.x += (obj.x - objContainer.container.x) * lerpFactor;
       objContainer.container.y += (obj.y - objContainer.container.y) * lerpFactor;
 
-      // Asteroids: rotate the sprite each frame
+      // Asteroids: rotate the sprite each frame (tumbling)
       if (objContainer.rotationSpeed) {
         objContainer.sprite.rotation += objContainer.rotationSpeed * (deltaMs / 1000);
+      }
+
+      // Non-asteroids: rotate sprite to face direction of travel
+      if (objContainer.faceHeading) {
+        const dx = obj.x - objContainer.prevX;
+        const dy = obj.y - objContainer.prevY;
+        // Only update if there's meaningful movement (avoid jitter at rest)
+        if (dx * dx + dy * dy > 1) {
+          // Sprites face "up" by default, so subtract PI/2 to align with atan2
+          objContainer.sprite.rotation = Math.atan2(dy, dx) + Math.PI / 2;
+        }
+        objContainer.prevX = obj.x;
+        objContainer.prevY = obj.y;
       }
 
       // Update multiplier text
@@ -382,10 +401,13 @@ export class MainScene extends Phaser.Scene {
         base.setOrigin(0.5, 0.5);
         base.setTint(colorHex);
 
-        // Turret barrel sprite
-        const barrel = this.add.sprite(0, 0, 'turret_barrel');
+        // Turret barrel sprite — weapon-specific animated barrel
+        const weaponType = player.weaponType || 'standard';
+        const barrelKey = `turret_barrel_${weaponType}`;
+        const barrel = this.add.sprite(0, 0, barrelKey);
         barrel.setOrigin(0, 0.5);
         barrel.setTint(colorHex);
+        barrel.play(`${barrelKey}_idle`);
 
         container.add([base, barrel]);
 
@@ -402,6 +424,16 @@ export class MainScene extends Phaser.Scene {
 
       const container = this.turretSprites.get(sessionId)!;
       const barrel = container.list[container.list.length - 1] as Phaser.GameObjects.Sprite;
+
+      // Swap barrel sprite if weapon type changed
+      const expectedBarrelKey = `turret_barrel_${player.weaponType || 'standard'}`;
+      if (barrel.texture.key !== expectedBarrelKey) {
+        const seatColorStr = SEAT_COLORS[player.seatIndex] || '#ffffff';
+        const colorHex = Phaser.Display.Color.HexStringToColor(seatColorStr).color;
+        barrel.setTexture(expectedBarrelKey);
+        barrel.setTint(colorHex);
+        barrel.play(`${expectedBarrelKey}_idle`);
+      }
 
       // Rotate barrel to face target angle
       barrel.rotation = player.turretAngle;
