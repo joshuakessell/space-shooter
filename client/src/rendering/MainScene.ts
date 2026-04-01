@@ -397,21 +397,20 @@ export class MainScene extends Phaser.Scene {
         const seatColorStr = SEAT_COLORS[player.seatIndex] || '#ffffff';
         const colorHex = Phaser.Display.Color.HexStringToColor(seatColorStr).color;
 
-        // Turret base sprite — no tint, natural gray color; 2x scale for HD
+        // Turret base sprite — no tint, natural gray; native 128px, no scaling needed
         const base = this.add.sprite(0, 0, 'turret');
         base.setOrigin(0.5, 0.5);
-        base.setScale(2);
         // Player-colored glow on the base lights (WebGL2 only)
         if (base.preFX) {
           base.preFX.addGlow(colorHex, 4, 0, false, 0.15, 24);
         }
 
-        // Turret barrel sprite — weapon-specific animated barrel; 4x scale for HD
+        // Turret barrel sprite — weapon-specific animated barrel; native 96px, scale 2x
         const weaponType = player.weaponType || 'standard';
         const barrelKey = `turret_barrel_${weaponType}`;
         const barrel = this.add.sprite(0, 0, barrelKey);
         barrel.setOrigin(0.5, 0.84);
-        barrel.setScale(4);
+        barrel.setScale(2);
         // Player-colored glow on barrel effects (lights/electricity, WebGL2 only)
         if (barrel.preFX) {
           barrel.preFX.addGlow(colorHex, 4, 0, false, 0.15, 24);
