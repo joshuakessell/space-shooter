@@ -444,7 +444,6 @@ function resolveFeatureSpawn(
     // BLACKHOLE_PULL_RADIUS. Total payout = count × bet × 5, funded from pool.
     const BLACKHOLE_PER_KILL_MULT = 5;
     let killCount = 0;
-    const destroyedIds: EntityId[] = [];
 
     for (const [eid, obj] of ctx.world.spaceObjects) {
       if (obj.isDead || !isStandardTarget(obj.type)) continue;
@@ -465,7 +464,6 @@ function resolveFeatureSpawn(
       ctx.wallet.awardPayout(playerId, killPayout);
       ctx.economy.recordPayout(killPayout);
       killCount++;
-      destroyedIds.push(eid);
     }
 
     if (killCount > 0) {

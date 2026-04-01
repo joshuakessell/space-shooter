@@ -38,7 +38,7 @@ COLORS = {
     'black': (0x00, 0x00, 0x00),
 }
 
-def create_image(width, height, bg_color='background'):
+def create_image(width, height, _bg_color='background'):
     """Create a new image with transparent background."""
     img = Image.new('RGBA', (width, height), (0, 0, 0, 0))
     return img
@@ -839,7 +839,7 @@ def create_background(width=1920, height=1080):
 
     return img
 
-def generate_spritesheet(entity_name, frame_func, num_frames, frame_width, frame_height):
+def generate_spritesheet(_entity_name, frame_func, num_frames, frame_width, frame_height):
     """Generate a complete spritesheet for an entity."""
     spritesheet_width = frame_width * num_frames
     spritesheet = Image.new('RGBA', (spritesheet_width, frame_height), (0, 0, 0, 0))
@@ -918,7 +918,7 @@ def main():
         print(f"✓ ({num_frames} frames, {laser_sheet.size[0]}x{laser_sheet.size[1]})")
 
     # Coin animation
-    print(f"  Generating coin...", end=' ')
+    print("  Generating coin...", end=' ')
     coin_sheet = generate_spritesheet('coin', create_coin_frame, 6, 16, 16)
     coin_sheet.save(f'{spritesheets_path}/coin.png')
     print(f"✓ (6 frames, {coin_sheet.size[0]}x{coin_sheet.size[1]})")
@@ -935,13 +935,13 @@ def main():
         print(f"✓ ({sprite_img.size[0]}x{sprite_img.size[1]})")
 
     # Turret barrel (special size)
-    print(f"  Generating turret_barrel...", end=' ')
+    print("  Generating turret_barrel...", end=' ')
     barrel_img = create_turret_barrel_sprite(48, 16)
     barrel_img.save(f'{sprites_path}/turret_barrel.png')
     print(f"✓ ({barrel_img.size[0]}x{barrel_img.size[1]})")
 
     # Background
-    print(f"  Generating background...", end=' ')
+    print("  Generating background...", end=' ')
     bg_img = create_background(1920, 1080)
     bg_img.save(f'{backgrounds_path}/background.png')
     print(f"✓ ({bg_img.size[0]}x{bg_img.size[1]})")

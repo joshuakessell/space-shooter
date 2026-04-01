@@ -95,8 +95,8 @@ export interface ITurretState {
   readonly y: number;
 }
 
-/** Entity ID — always a positive integer */
-export type EntityId = number;
+/** Entity ID — always a positive integer. Semantic alias kept for readability. */
+export type EntityId = number; // NOSONAR — semantic alias used across 10+ files
 
 /** RTP table entry for a single space object type */
 export interface IRtpEntry {

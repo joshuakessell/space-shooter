@@ -31,6 +31,7 @@ import { Quadtree } from '../src/spatial/Quadtree.js';
 import { ObjectPool } from '../src/pool/ObjectPool.js';
 import { GAME_BALANCE_CONFIG, VolatilityPhase } from '../src/config/GameBalanceConfig.js';
 import type { IGameBalanceConfig } from '../src/config/GameBalanceConfig.js';
+import { SpaceObjectComponent } from '../src/ecs/components.js';
 
 // ─── Helper: create a test config with overrides ───
 
@@ -928,7 +929,7 @@ describe('Chain Lightning (DestroySystem)', () => {
       { projectileId: proj, objectId: obj1, projectileOwnerId: 'p1', betAmount: 10 },
     ];
 
-    const { chainHits } = destroySystem(world, collisions, engine, rng, wallet, economy, { globalReservePool: 9999 });
+    destroySystem(world, collisions, engine, rng, wallet, economy, { globalReservePool: 9999 });
 
     const projComp = world.projectiles.get(proj);
     if (projComp && !world.pendingDestroy.has(proj)) {
@@ -984,7 +985,7 @@ describe('Supernova AoE (DestroySystem)', () => {
       { projectileId: proj, objectId: bomb, projectileOwnerId: 'p1', betAmount: 10 },
     ];
 
-    const { payouts, aoeBlasts } = destroySystem(world, collisions, engine, rng, wallet, economy, { globalReservePool: 99999 });
+    const { aoeBlasts } = destroySystem(world, collisions, engine, rng, wallet, economy, { globalReservePool: 99999 });
 
     // If the bomb was killed, AoE should have been triggered
     const bombObj = world.spaceObjects.get(bomb);
@@ -1094,7 +1095,7 @@ describe('RtpEngine NaN Guards', () => {
     engine.addPlayer('p1');
 
     assert.throws(
-      () => engine.evaluateHit(SpaceObjectType.ASTEROID, NaN, 'p1', 1, 0, { globalReservePool: 0 }),
+      () => engine.evaluateHit(SpaceObjectType.ASTEROID, Number.NaN, 'p1', 1, 0, { globalReservePool: 0 }),
       /Non-finite value detected/,
       'Should throw on NaN bet'
     );
@@ -1107,7 +1108,7 @@ describe('RtpEngine NaN Guards', () => {
     engine.addPlayer('p1');
 
     assert.throws(
-      () => engine.evaluateHit(SpaceObjectType.ASTEROID, 10, 'p1', 1, 0, { globalReservePool: NaN }),
+      () => engine.evaluateHit(SpaceObjectType.ASTEROID, 10, 'p1', 1, 0, { globalReservePool: Number.NaN }),
       /Non-finite value detected/,
       'Should throw on NaN reserve pool'
     );
@@ -1118,7 +1119,6 @@ describe('RtpEngine NaN Guards', () => {
 
 describe('Hazard Economy (Reserve Pool Gating)', () => {
   it('hazard kill should deduct payout from reserve pool', () => {
-    const rng = new SeededRngService(42);
     const wallet = new WalletManager();
     wallet.initPlayer('p1', 10000);
     const economy = new RoomEconomyManager(GAME_BALANCE_CONFIG);
@@ -1161,7 +1161,6 @@ describe('Hazard Economy (Reserve Pool Gating)', () => {
   });
 
   it('hazard should skip kill when reserve pool is empty and target has no absorbed credits', () => {
-    const rng = new SeededRngService(42);
     const wallet = new WalletManager();
     wallet.initPlayer('p1', 10000);
     const economy = new RoomEconomyManager(GAME_BALANCE_CONFIG);
@@ -1194,7 +1193,7 @@ describe('Hazard Economy (Reserve Pool Gating)', () => {
     });
 
     // Hazard should end immediately — empty pool can't fund any kills
-    const result = hazardSystem(world, wallet, economy, GAME_BALANCE_CONFIG, reservePool);
+    hazardSystem(world, wallet, economy, GAME_BALANCE_CONFIG, reservePool);
 
     // The hazard should have been terminated due to empty pool
     assert.ok(world.pendingDestroy.has(hazardId),
@@ -1243,7 +1242,7 @@ describe('Hazard Economy (Reserve Pool Gating)', () => {
     engine.addPlayer('p1');
     const spawnSystem = new SpawnSystem(rng, GAME_BALANCE_CONFIG);
     const reservePool = { globalReservePool: 100 };
-    const runner = new SystemRunner(world, engine, rng, wallet, economy, GAME_BALANCE_CONFIG, spawnSystem, reservePool);
+    new SystemRunner(world, engine, rng, wallet, economy, GAME_BALANCE_CONFIG, spawnSystem, reservePool);
 
     // Manually call handleVaultSpawn via processFeatureSpawns
     // We simulate by checking that vault can't exceed the pool
@@ -1285,13 +1284,11 @@ describe('Fire → Hit → Payout integration', () => {
     const targetId = world.createEntity();
     world.positions.set(targetId, { x: 960, y: 500 });
     world.bounds.set(targetId, { radius: 20 });
-    world.spaceObjects.set(targetId, {
-      type: SpaceObjectType.ASTEROID,
-      multiplier: GAME_BALANCE_CONFIG.objectTypes[SpaceObjectType.ASTEROID].multiplier,
-      absorbedCredits: 0,
-      isDead: false,
-      isCaptured: false,
-    });
+    const spaceObj = new SpaceObjectComponent();
+    spaceObj.type = SpaceObjectType.ASTEROID;
+    spaceObj.multiplier = GAME_BALANCE_CONFIG.objectTypes[SpaceObjectType.ASTEROID].multiplier;
+    spaceObj.destroyProbability = GAME_BALANCE_CONFIG.objectTypes[SpaceObjectType.ASTEROID].destroyProbability;
+    world.spaceObjects.set(targetId, spaceObj);
 
     // Queue fire intent pointing at the target
     const intentId = world.createEntity();
@@ -1305,7 +1302,7 @@ describe('Fire → Hit → Payout integration', () => {
     const balanceBefore = wallet.getBalance('player1');
 
     // Run a full tick
-    const result = runner.tick(50, world.currentTick);
+    const result = runner.tick(['player1']);
 
     const balanceAfter = wallet.getBalance('player1');
 
@@ -1358,7 +1355,7 @@ describe('Fire → Hit → Payout integration', () => {
       weaponType: 'standard',
     });
 
-    const result = runner.tick(50, world.currentTick);
+    const result = runner.tick(['broke_player']);
 
     // Shot should be rejected
     assert.ok(result.rejectedShots.length > 0, 'Shot should be rejected for insufficient funds');

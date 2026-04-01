@@ -31,8 +31,6 @@ export const BET_TIERS: readonly number[] = Array.from(
   { length: (MAX_BET - MIN_BET) / BET_INCREMENT + 1 },
   (_, i) => MIN_BET + i * BET_INCREMENT,
 );
-export type BetTier = number;
-
 /** Target Return-to-Player percentage */
 export const TARGET_RTP = 0.98;
 

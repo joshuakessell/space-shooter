@@ -526,7 +526,6 @@ export class MainScene extends Phaser.Scene {
     objectType: string
   ) {
     const color = SEAT_COLORS[seatIndex] ?? '#FFD700';
-    const spriteKey = SPRITE_KEY_MAP[objectType] ?? 'asteroid';
     const emoji = '💥'; // Generic explosion emoji for now
 
     this.payoutNotifications.push({
@@ -546,7 +545,7 @@ export class MainScene extends Phaser.Scene {
     this.ghostLaserGraphics.clear();
     for (let i = 0; i < MainScene.MAX_GHOST_LASERS; i++) {
       const l = this.ghostLaserBuffer[i];
-      if (!l || !l.active) continue;
+      if (!l?.active) continue;
 
       l.age += deltaSec;
 

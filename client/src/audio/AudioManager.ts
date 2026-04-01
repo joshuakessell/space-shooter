@@ -5,30 +5,30 @@ const MAX_EXPLOSIONS = 5;
 
 export class AudioManager {
   // Music
-  private bgm: Howl;
+  private readonly bgm: Howl;
 
   // Laser sounds by type
-  private laserStandard: Howl;
-  private laserSpread: Howl;
-  private laserLightning: Howl;
+  private readonly laserStandard: Howl;
+  private readonly laserSpread: Howl;
+  private readonly laserLightning: Howl;
 
   // Explosion sounds by size
-  private explosionSmall: Howl;
-  private explosionMedium: Howl;
-  private explosionBoss: Howl;
+  private readonly explosionSmall: Howl;
+  private readonly explosionMedium: Howl;
+  private readonly explosionBoss: Howl;
 
   // Utility sounds
-  private coinCollect: Howl;
-  private jackpotSiren: Howl;
-  private impactHit: Howl;
+  private readonly coinCollect: Howl;
+  private readonly jackpotSiren: Howl;
+  private readonly impactHit: Howl;
 
   // Special ability sounds
-  private blackholeActivate: Howl;
-  private empDischarge: Howl;
-  private drillLaunch: Howl;
-  private orbitalLaser: Howl;
-  private vaultOpen: Howl;
-  private supernovaBlast: Howl;
+  private readonly blackholeActivate: Howl;
+  private readonly empDischarge: Howl;
+  private readonly drillLaunch: Howl;
+  private readonly orbitalLaser: Howl;
+  private readonly vaultOpen: Howl;
+  private readonly supernovaBlast: Howl;
 
   // Volume controls
   private masterVolume = 1.0;
@@ -41,7 +41,7 @@ export class AudioManager {
   private coinCombo = 0;
   private coinDebounceTimer: number | null = null;
   private activeExplosions = 0;
-  private failedLoads: string[] = [];
+  private readonly failedLoads: string[] = [];
 
   /** Optional callback fired when a sound file fails to load */
   public onLoadError: ((soundName: string) => void) | null = null;

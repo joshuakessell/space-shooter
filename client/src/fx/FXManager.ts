@@ -577,8 +577,7 @@ export class FXManager {
 
       // Determine sprite size based on type
       let scale = 1;
-      if (explosionType === 'explosion_small') scale = 1;
-      else if (explosionType === 'explosion_medium') scale = 1.5;
+      if (explosionType === 'explosion_medium') scale = 1.5;
       else if (explosionType === 'explosion_boss') scale = 2;
 
       const sprite = this.scene.add.sprite(x, y, explosionType);
