@@ -15,6 +15,5 @@
     "test": "npm test --workspace=server"
   },
   "dependencies": {
-    "@rollup/rollup-linux-arm64-gnu": "^4.60.0"
   }
 }

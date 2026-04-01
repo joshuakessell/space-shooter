@@ -405,7 +405,8 @@ export class MainScene extends Phaser.Scene {
         const weaponType = player.weaponType || 'standard';
         const barrelKey = `turret_barrel_${weaponType}`;
         const barrel = this.add.sprite(0, 0, barrelKey);
-        barrel.setOrigin(0, 0.5);
+        barrel.setOrigin(0.5, 0.84);
+        barrel.setScale(2);
         barrel.setTint(colorHex);
         barrel.play(`${barrelKey}_idle`);
 
@@ -436,7 +437,8 @@ export class MainScene extends Phaser.Scene {
       }
 
       // Rotate barrel to face target angle
-      barrel.rotation = player.turretAngle;
+      // Barrel art points UP; atan2 gives 0 = right, so offset by +π/2
+      barrel.rotation = player.turretAngle + Math.PI / 2;
     });
 
     // Cleanup disconnected players
