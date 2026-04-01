@@ -218,10 +218,12 @@ export class HUDManager {
     btn.addEventListener('mouseleave', () => {
       btn.style.background = 'rgba(255,255,255,0.1)';
     });
-    btn.addEventListener('mousedown', () => {
+    btn.addEventListener('mousedown', (e) => {
+      e.stopPropagation();
       btn.style.transform = 'scale(0.9)';
     });
-    btn.addEventListener('mouseup', () => {
+    btn.addEventListener('mouseup', (e) => {
+      e.stopPropagation();
       btn.style.transform = 'scale(1)';
     });
     btn.addEventListener('click', (e) => {
@@ -262,8 +264,8 @@ export class HUDManager {
     btn.addEventListener('mouseleave', () => {
       if (this.currentWeapon !== weaponType) btn.style.background = 'rgba(255,255,255,0.1)';
     });
-    btn.addEventListener('mousedown', () => { btn.style.transform = 'scale(0.95)'; });
-    btn.addEventListener('mouseup', () => { btn.style.transform = 'scale(1)'; });
+    btn.addEventListener('mousedown', (e) => { e.stopPropagation(); btn.style.transform = 'scale(0.95)'; });
+    btn.addEventListener('mouseup', (e) => { e.stopPropagation(); btn.style.transform = 'scale(1)'; });
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       onClick();
