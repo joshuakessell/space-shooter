@@ -78,6 +78,7 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
   // ─── Tick loop ───
   private simulationInterval: ReturnType<typeof setInterval> | null = null;
   private dbSyncInterval: ReturnType<typeof setInterval> | null = null;
+  private auditCleanupInterval: ReturnType<typeof setInterval> | null = null;
 
   // ─── Seat management ───
   private readonly seats: SeatArray = new Array<string | null>(MAX_PLAYERS).fill(null);
@@ -149,19 +150,42 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
 
     console.log("[GameRoom] Room Created and Ticking");
 
+    // Restore reserve pool from DB
+    this.restoreReservePool().catch(err => {
+      console.error('[GameRoom] Failed to restore reserve pool:', err);
+    });
+
     // Start the fixed-timestep simulation loop
     this.simulationInterval = setInterval(() => {
       this.simulateTick();
     }, FIXED_TIMESTEP_MS);
 
-    // 5000ms batch DB sync timer
+    // 5000ms batch DB sync timer (wallets + reserve pool)
     this.dbSyncInterval = setInterval(async () => {
       try {
-        await this.wallet.syncToDatabase();
+        await Promise.all([
+          this.wallet.syncToDatabase(),
+          this.persistReservePool(),
+        ]);
       } catch (err) {
         console.error('[GameRoom] Database Batch Sync Error:', err);
       }
     }, 5000);
+
+    // Audit log retention: purge entries older than 90 days every hour
+    this.auditCleanupInterval = setInterval(async () => {
+      try {
+        const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+        const { count } = await prisma.auditLog.deleteMany({
+          where: { timestamp: { lt: cutoff } },
+        });
+        if (count > 0) {
+          console.log(`[GameRoom] Purged ${count} audit logs older than 90 days`);
+        }
+      } catch (err) {
+        console.error('[GameRoom] Audit log cleanup error:', err);
+      }
+    }, 60 * 60 * 1000); // Every hour
 
     console.log(`[GameRoom] Room ${this.roomId} created. Tick rate: ${1000 / FIXED_TIMESTEP_MS} Hz`);
     console.log(`[GameRoom] RTP target: ${GAME_BALANCE_CONFIG.targetRtp * 100}%`);
@@ -362,6 +386,14 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
       clearInterval(this.dbSyncInterval);
       this.dbSyncInterval = null;
     }
+    if (this.auditCleanupInterval) {
+      clearInterval(this.auditCleanupInterval);
+      this.auditCleanupInterval = null;
+    }
+    // Persist reserve pool on shutdown
+    this.persistReservePool().catch(err => {
+      console.error('[GameRoom] Failed to persist reserve pool on dispose:', err);
+    });
     this.world.clear();
     this.wallet.clear();
     this.economy.reset();
@@ -426,10 +458,14 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
       return; // Do NOT create a fire intent
     }
 
-    // Parse optional lock-on target
-    const lockedTargetId = message.lockedTargetId
-      ? Number(message.lockedTargetId)
-      : undefined;
+    // Parse and validate optional lock-on target
+    let lockedTargetId: number | undefined;
+    if (message.lockedTargetId) {
+      const parsed = Number(message.lockedTargetId);
+      if (Number.isFinite(parsed) && this.world.spaceObjects.has(parsed)) {
+        lockedTargetId = parsed;
+      }
+    }
 
     // Queue a fire intent for the next tick (never mutate ECS mid-tick)
     const intentId = this.world.createEntity();
@@ -471,11 +507,12 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
     // Update Colyseus state for UI sync
     const player = this.state.players.get(client.sessionId);
     if (player) {
-      player.betAmount = bestTier;
+      player.betAmount = clamped;
     }
   }
 
   private handlePointerMove(client: Client, message: PointerMoveMessage): void {
+    if (!Number.isFinite(message.angle)) return;
     const player = this.state.players.get(client.sessionId);
     if (player) {
       player.turretAngle = message.angle;
@@ -540,6 +577,19 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
           angle: proj.angle,
           lockedTargetId: proj.lockedTargetId !== undefined ? String(proj.lockedTargetId) : undefined,
         }, { except: targetClient });
+      }
+    }
+
+    // Log RNG audit trail for all resolved hits (for dispute resolution)
+    for (const res of result.collisionResolutions) {
+      if (res.hitEvaluation.destroyed && res.hitEvaluation.payout >= 100) {
+        console.log(`[RNG_AUDIT] kill player=${res.playerId} target=${res.targetEntityId} ` +
+          `bet=${res.betAmount} payout=${res.hitEvaluation.payout} mult=${res.hitEvaluation.multiplier} ` +
+          `roll=${res.hitEvaluation.rngRoll.toFixed(6)} threshold=${res.hitEvaluation.finalThreshold.toFixed(6)} ` +
+          `mods=[gv=${res.hitEvaluation.modifiers.globalVolatility.toFixed(3)} ` +
+          `hs=${res.hitEvaluation.modifiers.hotSeatModifier.toFixed(3)} ` +
+          `pin=${res.hitEvaluation.modifiers.pinataModifier.toFixed(3)} ` +
+          `pity=${res.hitEvaluation.modifiers.pityModifier.toFixed(3)}]`);
       }
     }
 
@@ -680,6 +730,24 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
       if (this.seats[i] === null) return i;
     }
     return -1;
+  }
+
+  /** Restore reserve pool from DB on room creation */
+  private async restoreReservePool(): Promise<void> {
+    const row = await prisma.roomEconomy.findUnique({ where: { id: 'singleton' } });
+    if (row) {
+      this.globalReservePool = Number(row.reservePool);
+      console.log(`[GameRoom] Restored reserve pool: ${this.globalReservePool}`);
+    }
+  }
+
+  /** Persist reserve pool to DB */
+  private async persistReservePool(): Promise<void> {
+    await prisma.roomEconomy.upsert({
+      where: { id: 'singleton' },
+      update: { reservePool: this.globalReservePool },
+      create: { id: 'singleton', reservePool: this.globalReservePool },
+    });
   }
 
   /** Map seat index to TurretPosition enum value */

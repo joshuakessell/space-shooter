@@ -330,6 +330,8 @@ export class FXManager {
           vortexParticle.setDepth(36);
           vortexParticle.setParticleTint(0x9933ff);
           vortexParticle.emitParticleAt(px, py, 1);
+          // Destroy emitter after particles finish their lifespan
+          this.scene.time.delayedCall(1700, () => vortexParticle.destroy());
       }
 
       // Purple/dark glow pulse

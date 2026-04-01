@@ -7,6 +7,7 @@
 // ─────────────────────────────────────────────────────────────
 
 import type { SyncedSpaceObjectState } from '../network/ColyseusClient.js';
+import { GAME_WIDTH, GAME_HEIGHT } from '@space-shooter/shared';
 import type { WeaponType } from '@space-shooter/shared';
 
 export interface FireIntent {
@@ -73,8 +74,8 @@ export class InputHandler {
   private clientToWorld(clientX: number, clientY: number): { x: number; y: number } {
     const rect = this.canvas.getBoundingClientRect();
     return {
-      x: ((clientX - rect.left) / rect.width) * 1920,
-      y: ((clientY - rect.top) / rect.height) * 1080,
+      x: ((clientX - rect.left) / rect.width) * GAME_WIDTH,
+      y: ((clientY - rect.top) / rect.height) * GAME_HEIGHT,
     };
   }
 

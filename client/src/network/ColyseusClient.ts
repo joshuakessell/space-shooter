@@ -156,9 +156,15 @@ export class GameClient {
   private readonly client: Client;
   private room: Room | null = null;
   private readonly callbacks: GameClientCallbacks;
+  private readonly serverUrl: string;
   public sessionId: string = '';
 
+  private reconnectAttempts = 0;
+  private readonly maxReconnectAttempts = 8;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
   constructor(serverUrl: string, callbacks: GameClientCallbacks) {
+    this.serverUrl = serverUrl;
     this.client = new Client(serverUrl);
     this.callbacks = callbacks;
   }
@@ -230,6 +236,17 @@ export class GameClient {
         this.callbacks.onFeatureOrbitalLaser?.(data);
       });
 
+      // Auto-reconnect on unexpected disconnect
+      this.room.onLeave((code) => {
+        this.room = null;
+        if (code === 1000) return; // Normal close, don't reconnect
+        console.warn(`[GameClient] Disconnected (code ${code}), attempting reconnect...`);
+        this.scheduleReconnect();
+      });
+
+      // Reset on successful connection
+      this.reconnectAttempts = 0;
+
     } catch (err) {
       this.callbacks.onError(err instanceof Error ? err : new Error(String(err)));
       throw err;
@@ -281,6 +298,27 @@ export class GameClient {
       await this.room.leave();
       this.room = null;
     }
+  }
+
+  /** Reconnect with exponential backoff */
+  private scheduleReconnect(): void {
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.error('[GameClient] Max reconnection attempts reached');
+      this.callbacks.onError(new Error('Connection lost. Please refresh the page.'));
+      return;
+    }
+
+    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
+    this.reconnectAttempts++;
+    console.log(`[GameClient] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+
+    this.reconnectTimer = setTimeout(async () => {
+      try {
+        await this.joinRoom();
+      } catch {
+        this.scheduleReconnect();
+      }
+    }, delay);
   }
 
   /** Convert Colyseus state to a plain snapshot */

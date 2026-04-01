@@ -1257,3 +1257,111 @@ describe('Hazard Economy (Reserve Pool Gating)', () => {
     assert.ok(balanceBefore > 0, 'Player should have credits');
   });
 });
+
+// ─── Integration: Fire → Hit → Payout Pipeline ───
+
+describe('Fire → Hit → Payout integration', () => {
+  it('should deduct bet on fire, award payout on kill, and update wallet', () => {
+    // Use a seeded RNG that will produce a kill (low roll)
+    const rng = new SeededRngService(1);
+    const wallet = new WalletManager();
+    wallet.initPlayer('player1', 10000);
+
+    const economy = new RoomEconomyManager(GAME_BALANCE_CONFIG);
+    const world = new World();
+    const engine = new RtpEngine(rng, economy, GAME_BALANCE_CONFIG);
+    engine.addPlayer('player1');
+
+    // Create turret for player
+    const turretId = world.createEntity();
+    world.positions.set(turretId, { x: 960, y: 1020 });
+    world.turrets.set(turretId, { playerId: 'player1', position: 'BOTTOM_MIDDLE' as never });
+
+    const spawnSystem = new SpawnSystem(rng, GAME_BALANCE_CONFIG);
+    const reservePool = { globalReservePool: 50000 };
+    const runner = new SystemRunner(world, engine, rng, wallet, economy, GAME_BALANCE_CONFIG, spawnSystem, reservePool);
+
+    // Manually create a target asteroid at known position
+    const targetId = world.createEntity();
+    world.positions.set(targetId, { x: 960, y: 500 });
+    world.bounds.set(targetId, { radius: 20 });
+    world.spaceObjects.set(targetId, {
+      type: SpaceObjectType.ASTEROID,
+      multiplier: GAME_BALANCE_CONFIG.objectTypes[SpaceObjectType.ASTEROID].multiplier,
+      absorbedCredits: 0,
+      isDead: false,
+      isCaptured: false,
+    });
+
+    // Queue fire intent pointing at the target
+    const intentId = world.createEntity();
+    world.fireIntents.set(intentId, {
+      playerId: 'player1',
+      angle: -Math.PI / 2, // Aim up toward target
+      betAmount: 10,
+      weaponType: 'standard',
+    });
+
+    const balanceBefore = wallet.getBalance('player1');
+
+    // Run a full tick
+    const result = runner.tick(50, world.currentTick);
+
+    const balanceAfter = wallet.getBalance('player1');
+
+    // Bet should have been deducted (10 credits)
+    assert.ok(balanceAfter <= balanceBefore, 'Balance should not increase from bet alone');
+
+    // If there was a kill, payout should have been awarded
+    if (result.payouts.length > 0) {
+      const payout = result.payouts[0];
+      assert.strictEqual(payout.playerId, 'player1');
+      assert.ok(payout.payout > 0, 'Payout should be positive');
+      // Balance should reflect: starting - bet + payout
+      const expectedBalance = balanceBefore - 10 + payout.payout;
+      assert.strictEqual(balanceAfter, expectedBalance,
+        `Balance should be ${expectedBalance} but got ${balanceAfter}`);
+    } else {
+      // Miss: balance should be starting - bet
+      assert.strictEqual(balanceAfter, balanceBefore - 10,
+        'On miss, balance should decrease by bet amount');
+    }
+
+    // Fire intent should be consumed
+    assert.strictEqual(world.fireIntents.size, 0, 'Fire intents should be consumed after tick');
+  });
+
+  it('should reject fire when player has insufficient credits', () => {
+    const rng = new SeededRngService(42);
+    const wallet = new WalletManager();
+    wallet.initPlayer('broke_player', 5); // Only 5 credits
+
+    const economy = new RoomEconomyManager(GAME_BALANCE_CONFIG);
+    const world = new World();
+    const engine = new RtpEngine(rng, economy, GAME_BALANCE_CONFIG);
+    engine.addPlayer('broke_player');
+
+    const turretId = world.createEntity();
+    world.positions.set(turretId, { x: 960, y: 1020 });
+    world.turrets.set(turretId, { playerId: 'broke_player', position: 'BOTTOM_MIDDLE' as never });
+
+    const spawnSystem = new SpawnSystem(rng, GAME_BALANCE_CONFIG);
+    const reservePool = { globalReservePool: 1000 };
+    const runner = new SystemRunner(world, engine, rng, wallet, economy, GAME_BALANCE_CONFIG, spawnSystem, reservePool);
+
+    // Try to fire with bet=10 but only 5 credits
+    const intentId = world.createEntity();
+    world.fireIntents.set(intentId, {
+      playerId: 'broke_player',
+      angle: 0,
+      betAmount: 10,
+      weaponType: 'standard',
+    });
+
+    const result = runner.tick(50, world.currentTick);
+
+    // Shot should be rejected
+    assert.ok(result.rejectedShots.length > 0, 'Shot should be rejected for insufficient funds');
+    assert.strictEqual(wallet.getBalance('broke_player'), 5, 'Balance should remain unchanged');
+  });
+});
