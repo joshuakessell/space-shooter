@@ -88,9 +88,9 @@ export class BootScene extends Phaser.Scene {
 
     // Animated barrel spritesheets (one per weapon type)
     const turretBarrels = {
-      'turret_barrel_standard': { frameWidth: 48, frameHeight: 48 },
-      'turret_barrel_spread': { frameWidth: 48, frameHeight: 48 },
-      'turret_barrel_lightning': { frameWidth: 48, frameHeight: 48 },
+      'turret_barrel_standard': { frameWidth: 72, frameHeight: 72 },
+      'turret_barrel_spread': { frameWidth: 72, frameHeight: 72 },
+      'turret_barrel_lightning': { frameWidth: 72, frameHeight: 72 },
     };
 
     for (const [key, config] of Object.entries(turretBarrels)) {
