@@ -3,7 +3,7 @@
 // Connects network, input, renderer (Phaser), HUD, audio, FX.
 // ─────────────────────────────────────────────────────────────
 
-import { BET_TIERS, BET_INCREMENT, MIN_BET, MAX_BET, GAME_WIDTH, GAME_HEIGHT, SEAT_COORDINATES, SEAT_COLORS, SPREAD_ANGLE_OFFSET, MAX_BOUNCES } from '@space-shooter/shared';
+import { BET_TIERS, MIN_BET, MAX_BET, GAME_WIDTH, GAME_HEIGHT, SEAT_COORDINATES, SEAT_COLORS, SPREAD_ANGLE_OFFSET, MAX_BOUNCES } from '@space-shooter/shared';
 import type { WeaponType } from '@space-shooter/shared';
 import { GameClient } from './network/ColyseusClient.js';
 import type {

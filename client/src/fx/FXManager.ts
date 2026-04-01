@@ -20,9 +20,7 @@ export class FXManager {
   private trailEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
   private vortexEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
 
-  constructor() {
-      // Defer initialization until the scene is ready
-  }
+  // Initialization deferred to init() when scene is ready
 
   public init(scene: Phaser.Scene) {
       this.scene = scene;
@@ -555,7 +553,7 @@ export class FXManager {
               graphics.fillStyle(0xffaa00, 0.7);
               graphics.fillRect(x - beamWidth / 2, 0, beamWidth, GAME_HEIGHT);
               // Inner white core
-              graphics.fillStyle(0xffffff, 1.0);
+              graphics.fillStyle(0xffffff, 1);
               graphics.fillRect(x - beamWidth / 4, 0, beamWidth / 2, GAME_HEIGHT);
           },
           onComplete: () => {

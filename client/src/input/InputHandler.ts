@@ -234,7 +234,7 @@ export class InputHandler {
 
   /** Call each frame to apply arrow-key turret pivoting */
   updateKeyboardAim(deltaSec: number): void {
-    const pivotSpeed = 2.0; // radians per second
+    const pivotSpeed = 2; // radians per second
     if (this.keysHeld.has('ArrowLeft')) {
       this.keyboardAimOffset -= pivotSpeed * deltaSec;
     }

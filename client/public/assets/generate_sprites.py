@@ -167,7 +167,6 @@ def create_alien_craft_frame(frame_num, width=84, height=84):
     draw.ellipse([(cx - 16, dome_y - 12), (cx + 16, dome_y + 4)], fill=COLORS['plasma_bright'])
 
     # Pulsing lights on disc - vary with frame
-    light_intensity = frame_num % 3
     light_colors = [COLORS['neon_green'], COLORS['neon_pink'], COLORS['plasma_bright']]
 
     for i in range(5):
@@ -505,7 +504,7 @@ def create_emp_relay_frame(frame_num, width=212, height=212):
         spark_y = cy - 40 + 40 * math.sin(spark_rad)
 
         # Lightning bolt
-        for segment in range(3):
+        for _ in range(3):
             next_angle = spark_rad + random.uniform(-0.3, 0.3)
             next_x = spark_x + 8 * math.cos(next_angle)
             next_y = spark_y + 8 * math.sin(next_angle)
@@ -805,7 +804,7 @@ def create_background(width=1920, height=1080):
     # Nebula wisps - colorful clouds
     nebula_colors = [COLORS['plasma_dark'], COLORS['enemy_purple'], COLORS['neon_green']]
 
-    for nebula in range(5):
+    for _ in range(5):
         nebula_x = random.randint(0, width)
         nebula_y = random.randint(0, height)
         nebula_color = random.choice(nebula_colors)
@@ -826,7 +825,7 @@ def create_background(width=1920, height=1080):
                         fill=ellipse_color, outline=None)
 
     # Add some distant galaxies (spiral shapes)
-    for galaxy in range(3):
+    for _ in range(3):
         gal_x = random.randint(200, width - 200)
         gal_y = random.randint(200, height - 200)
 

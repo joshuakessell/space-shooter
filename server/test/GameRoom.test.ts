@@ -10,8 +10,6 @@ import {
   SpaceObjectType,
   GAME_WIDTH,
   PROJECTILE_RADIUS,
-  CHAIN_LIGHTNING_RADIUS,
-  AOE_BLAST_RADIUS,
   VAULT_MULTIPLIERS,
 } from '@space-shooter/shared';
 import { World } from '../src/ecs/World.js';
@@ -20,7 +18,6 @@ import { projectileSystem } from '../src/ecs/systems/ProjectileSystem.js';
 import { collisionSystem } from '../src/ecs/systems/CollisionSystem.js';
 import { destroySystem } from '../src/ecs/systems/DestroySystem.js';
 import { hazardSystem } from '../src/ecs/systems/HazardSystem.js';
-import { cleanupSystem } from '../src/ecs/systems/CleanupSystem.js';
 import { SpawnSystem } from '../src/ecs/systems/SpawnSystem.js';
 import { SystemRunner } from '../src/ecs/systems/SystemRunner.js';
 import { CsprngService, SeededRngService } from '../src/services/CsprngService.js';
@@ -59,7 +56,7 @@ describe('GameBalanceConfig', () => {
 
   it('volatility phases should have correct multipliers', () => {
     assert.strictEqual(GAME_BALANCE_CONFIG.volatility.phases[VolatilityPhase.EATING], 0.85);
-    assert.strictEqual(GAME_BALANCE_CONFIG.volatility.phases[VolatilityPhase.BASELINE], 1.0);
+    assert.strictEqual(GAME_BALANCE_CONFIG.volatility.phases[VolatilityPhase.BASELINE], 1);
     assert.strictEqual(GAME_BALANCE_CONFIG.volatility.phases[VolatilityPhase.FRENZY], 1.4);
   });
 });

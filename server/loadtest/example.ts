@@ -1,4 +1,4 @@
-import { Client, Room, CloseCode } from "@colyseus/sdk";
+import { Client, Room } from "@colyseus/sdk";
 import { cli, Options } from "@colyseus/loadtest";
 
 export async function main(options: Options) {

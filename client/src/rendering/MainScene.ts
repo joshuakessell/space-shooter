@@ -357,7 +357,7 @@ export class MainScene extends Phaser.Scene {
   ) {
     if (objectType === SpaceObjectType.BLACKHOLE_GEN) {
       sprite.preFX?.addGlow(0x9933ff, 2, 0, false, 0.1, 32);
-      const barrel = sprite.preFX?.addBarrel(1.0);
+      const barrel = sprite.preFX?.addBarrel(1);
       if (barrel) {
         this.tweens.add({
           targets: barrel,
@@ -464,7 +464,7 @@ export class MainScene extends Phaser.Scene {
     bounces: number,
     color: string,
     weaponType: string,
-    alpha = 1.0,
+    alpha = 1,
   ) {
     // Ring buffer: overwrite oldest slot at head, O(1)
     this.ghostLaserBuffer[this.ghostLaserHead] = {
@@ -623,7 +623,7 @@ export class MainScene extends Phaser.Scene {
 
     // 2. Coin particles (swap-and-pop for O(1) removal)
     for (let i = this.coinParticles.length - 1; i >= 0; i--) {
-      const p = this.coinParticles[i]!;
+      const p = this.coinParticles[i];
       p.age += deltaSec;
 
       if (p.age >= p.duration) {
@@ -631,7 +631,7 @@ export class MainScene extends Phaser.Scene {
           this.onLocalCoinsArrived(p.payout);
         }
         // Swap-and-pop: O(1) removal
-        this.coinParticles[i] = this.coinParticles[this.coinParticles.length - 1];
+        this.coinParticles[i] = this.coinParticles.at(-1)!;
         this.coinParticles.pop();
         continue;
       }
@@ -656,14 +656,14 @@ export class MainScene extends Phaser.Scene {
 
     // 3. Payout Notifications
     for (let i = this.payoutNotifications.length - 1; i >= 0; i--) {
-      const n = this.payoutNotifications[i]!;
+      const n = this.payoutNotifications[i];
       n.age += deltaSec;
       n.y -= 50 * deltaSec; // float up
 
       if (n.age > 2) {
         if (n.textObj) n.textObj.destroy();
         // Swap-and-pop: O(1) removal
-        this.payoutNotifications[i] = this.payoutNotifications[this.payoutNotifications.length - 1];
+        this.payoutNotifications[i] = this.payoutNotifications.at(-1)!;
         this.payoutNotifications.pop();
         continue;
       }

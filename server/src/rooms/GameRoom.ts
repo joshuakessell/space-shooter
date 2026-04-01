@@ -20,7 +20,6 @@ import {
   MIN_BET,
   MAX_BET,
   BET_INCREMENT,
-  BET_TIERS,
   CLIENT_MESSAGES,
   SERVER_MESSAGES,
   WEAPON_COST,
@@ -575,7 +574,7 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
           sessionId: proj.ownerId,
           seatIndex,
           angle: proj.angle,
-          lockedTargetId: proj.lockedTargetId !== undefined ? String(proj.lockedTargetId) : undefined,
+          lockedTargetId: proj.lockedTargetId === undefined ? undefined : String(proj.lockedTargetId),
         }, { except: targetClient });
       }
     }

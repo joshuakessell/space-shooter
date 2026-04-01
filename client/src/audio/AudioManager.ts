@@ -31,9 +31,9 @@ export class AudioManager {
   private readonly supernovaBlast: Howl;
 
   // Volume controls
-  private masterVolume = 1.0;
-  private musicVolume = 1.0;
-  private sfxVolume = 1.0;
+  private masterVolume = 1;
+  private musicVolume = 1;
+  private sfxVolume = 1;
 
   // State management
   private isInitialized = false;
@@ -200,7 +200,7 @@ export class AudioManager {
    * Play a sound with spatial panning, rate control, and optional volume multiplier.
    * @param volumeScale - Multiplier on the sound's base volume (0-1). Used to dampen remote player sounds.
    */
-  private playSpatialSound(sound: Howl, x?: number, rate = 1.0, volumeScale = 1.0): number | undefined {
+  private playSpatialSound(sound: Howl, x?: number, rate = 1, volumeScale = 1): number | undefined {
     if (!this.isInitialized) return undefined;
 
     const id = sound.play();
@@ -210,7 +210,7 @@ export class AudioManager {
     sound.rate(rate, id);
 
     // Apply volume scale (for dampening remote player sounds)
-    if (volumeScale < 1.0) {
+    if (volumeScale < 1) {
       sound.volume(sound.volume() * volumeScale, id);
     }
 
@@ -227,7 +227,7 @@ export class AudioManager {
    * Play a laser sound based on weapon type.
    * Supports: 'standard', 'spread', 'lightning'
    */
-  public playShoot(x?: number, weaponType: string = 'standard', volumeScale = 1.0): void {
+  public playShoot(x?: number, weaponType: string = 'standard', volumeScale = 1): void {
     if (!this.isInitialized) return;
 
     let laserSound: Howl;
@@ -244,7 +244,7 @@ export class AudioManager {
         break;
     }
 
-    this.playSpatialSound(laserSound, x, 1.0, volumeScale);
+    this.playSpatialSound(laserSound, x, 1, volumeScale);
   }
 
   /**
@@ -297,9 +297,9 @@ export class AudioManager {
     }
     this.lastCoinTime = now;
 
-    // Calculate pitch increase: 1.0 + (combo * 0.05), capped at 2.0
-    const currentRate = 1.0 + (this.coinCombo * 0.05);
-    const cappedRate = Math.min(currentRate, 2.0);
+    // Calculate pitch increase: 1 + (combo * 0.05), capped at 2
+    const currentRate = 1 + (this.coinCombo * 0.05);
+    const cappedRate = Math.min(currentRate, 2);
 
     this.playSpatialSound(this.coinCollect, x, cappedRate);
 
