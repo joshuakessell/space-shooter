@@ -98,7 +98,7 @@ export const GAME_BALANCE_CONFIG: IGameBalanceConfig = {
   volatility: {
     phases: {
       [VolatilityPhase.EATING]:   0.85,  // Mild lull — kills slow by 15%, player notices but isn't frustrated
-      [VolatilityPhase.BASELINE]: 1.0,
+      [VolatilityPhase.BASELINE]: 1,
       [VolatilityPhase.FRENZY]:   1.4,   // Exciting burst — 40% more kills, screen lights up
     },
     eatingToBaselineProfitRatio: 0.03,   // Exit EATING quickly when profit thins to 3%
@@ -115,7 +115,7 @@ export const GAME_BALANCE_CONFIG: IGameBalanceConfig = {
 
   pinata: {
     maxModifier: 1.5,      // Moderate boost as credits accumulate
-    curveExponent: 2.0,    // Quadratic — boost ramps late
+    curveExponent: 2,    // Quadratic — boost ramps late
   },
 
   pity: {

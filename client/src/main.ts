@@ -3,7 +3,7 @@
 // Connects network, input, renderer (Phaser), HUD, audio, FX.
 // ─────────────────────────────────────────────────────────────
 
-import { BET_TIERS, BET_INCREMENT, MIN_BET, MAX_BET, GAME_WIDTH, GAME_HEIGHT, SEAT_COORDINATES, SEAT_COLORS, SPREAD_ANGLE_OFFSET, MAX_BOUNCES } from '@space-shooter/shared';
+import { BET_TIERS, MIN_BET, MAX_BET, GAME_WIDTH, GAME_HEIGHT, SEAT_COORDINATES, SEAT_COLORS, SPREAD_ANGLE_OFFSET, MAX_BOUNCES, clampTurretAngle } from '@space-shooter/shared';
 import type { WeaponType } from '@space-shooter/shared';
 import { GameClient } from './network/ColyseusClient.js';
 import type {
@@ -76,7 +76,7 @@ async function boot(): Promise<void> {
   await new Promise<void>(resolve => {
       const wait = setInterval(() => {
           mainScene = phaserGame.scene.getScene('MainScene') as MainScene;
-          if (mainScene && mainScene.sys && mainScene.sys.isActive()) {
+          if (mainScene?.sys?.isActive()) {
               clearInterval(wait);
               resolve();
           }
@@ -173,9 +173,9 @@ async function boot(): Promise<void> {
       } else if (event.multiplier >= 8) {
         // Elite-tier: glow pulse + moderate burst
         if (mainScene) mainScene.fxManager.playEliteKill(killX, killY, event.multiplier, objColor);
-      } else {
+      } else if (mainScene) {
         // Standard: quick pop
-        if (mainScene) mainScene.fxManager.playExplosion(killX, killY, event.multiplier, objColor);
+        mainScene.fxManager.playExplosion(killX, killY, event.multiplier, objColor);
       }
 
       // ─── Audio: explosion tier ───
@@ -186,8 +186,6 @@ async function boot(): Promise<void> {
 
       // ─── Jackpot popup for 50x+ ───
       if (event.multiplier >= 50) {
-        const seatColor = SEAT_COLORS[event.seatIndex] ?? '#FFD700';
-        // mainScene.showJackpotPopup(event.multiplier, seatColor); // TODO
         audio.playJackpotSiren(killX);
         audio.duckMusic(4000);
       }
@@ -372,7 +370,8 @@ function gameLoop(timestamp: number): void {
     input.updateLockedTarget(latestState.spaceObjects);
   }
 
-  const aimAngle = input.getAimAngle(localTurretX, localTurretY) + input.getKeyboardAimOffset();
+  const rawAngle = input.getAimAngle(localTurretX, localTurretY) + input.getKeyboardAimOffset();
+  const aimAngle = clampTurretAngle(rawAngle, localSeatIndex);
   const lockedTarget = input.getLockedTarget();
 
   // ─── Pointer move throttle ───
@@ -397,12 +396,8 @@ function gameLoop(timestamp: number): void {
     } else {
         mainScene.addGhostLaser(localTurretX, localTurretY, aimAngle, MAX_BOUNCES, SEAT_COLORS[localSeatIndex]!, currentWeapon);
     }
-    // renderer.triggerRecoil(localSeatIndex, aimAngle);
     audio.playShoot(localTurretX, currentWeapon);
   }
-
-  // Pass latest input state down to the Phaser scene (which calculates its own delta loop via update())
-  // renderer.render(aimAngle, localTurretX, localTurretY, deltaSec, lockedTarget);
 
   requestAnimationFrame(gameLoop);
 }
@@ -411,4 +406,4 @@ function gameLoop(timestamp: number): void {
 // and HUDManager.onBetChange (UI buttons). No separate setup needed.
 
 // ─── Bootstrap ───
-boot().catch(console.error);
+await boot();

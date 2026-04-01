@@ -357,7 +357,7 @@ export class MainScene extends Phaser.Scene {
   ) {
     if (objectType === SpaceObjectType.BLACKHOLE_GEN) {
       sprite.preFX?.addGlow(0x9933ff, 2, 0, false, 0.1, 32);
-      const barrel = sprite.preFX?.addBarrel(1.0);
+      const barrel = sprite.preFX?.addBarrel(1);
       if (barrel) {
         this.tweens.add({
           targets: barrel,
@@ -397,27 +397,40 @@ export class MainScene extends Phaser.Scene {
         const seatColorStr = SEAT_COLORS[player.seatIndex] || '#ffffff';
         const colorHex = Phaser.Display.Color.HexStringToColor(seatColorStr).color;
 
-        // Turret base sprite
+        // Turret base sprite — no tint, natural gray color; 2x scale for HD
         const base = this.add.sprite(0, 0, 'turret');
         base.setOrigin(0.5, 0.5);
-        base.setTint(colorHex);
+        base.setScale(2);
+        // Player-colored glow on the base lights (WebGL2 only)
+        if (base.preFX) {
+          base.preFX.addGlow(colorHex, 4, 0, false, 0.15, 24);
+        }
 
-        // Turret barrel sprite — weapon-specific animated barrel
+        // Turret barrel sprite — weapon-specific animated barrel; 4x scale for HD
         const weaponType = player.weaponType || 'standard';
         const barrelKey = `turret_barrel_${weaponType}`;
         const barrel = this.add.sprite(0, 0, barrelKey);
         barrel.setOrigin(0.5, 0.84);
-        barrel.setScale(2);
-        barrel.setTint(colorHex);
+        barrel.setScale(4);
+        // Player-colored glow on barrel effects (lights/electricity, WebGL2 only)
+        if (barrel.preFX) {
+          barrel.preFX.addGlow(colorHex, 4, 0, false, 0.15, 24);
+        }
         barrel.play(`${barrelKey}_idle`);
 
         container.add([base, barrel]);
 
-        // Local player gets a glow ring underneath
+        // Player-colored ring for identification (also serves as WebGL1 fallback)
+        const ring = this.add.graphics();
+        ring.lineStyle(2, colorHex, 0.5);
+        ring.strokeCircle(0, 0, 68);
+        container.addAt(ring, 0);
+
+        // Local player gets a brighter, thicker glow ring
         if (sessionId === this.localSessionId) {
           const glow = this.add.graphics();
-          glow.lineStyle(2, colorHex, 0.5);
-          glow.strokeCircle(0, 0, 34);
+          glow.lineStyle(3, colorHex, 0.8);
+          glow.strokeCircle(0, 0, 72);
           container.addAt(glow, 0);
         }
 
@@ -433,7 +446,9 @@ export class MainScene extends Phaser.Scene {
         const seatColorStr = SEAT_COLORS[player.seatIndex] || '#ffffff';
         const colorHex = Phaser.Display.Color.HexStringToColor(seatColorStr).color;
         barrel.setTexture(expectedBarrelKey);
-        barrel.setTint(colorHex);
+        // Refresh glow with player color on new barrel
+        barrel.preFX?.clear();
+        barrel.preFX?.addGlow(colorHex, 4, 0, false, 0.15, 24);
         barrel.play(`${expectedBarrelKey}_idle`);
       }
 
@@ -464,7 +479,7 @@ export class MainScene extends Phaser.Scene {
     bounces: number,
     color: string,
     weaponType: string,
-    alpha = 1.0,
+    alpha = 1,
   ) {
     // Ring buffer: overwrite oldest slot at head, O(1)
     this.ghostLaserBuffer[this.ghostLaserHead] = {
@@ -526,7 +541,6 @@ export class MainScene extends Phaser.Scene {
     objectType: string
   ) {
     const color = SEAT_COLORS[seatIndex] ?? '#FFD700';
-    const spriteKey = SPRITE_KEY_MAP[objectType] ?? 'asteroid';
     const emoji = '💥'; // Generic explosion emoji for now
 
     this.payoutNotifications.push({
@@ -546,7 +560,7 @@ export class MainScene extends Phaser.Scene {
     this.ghostLaserGraphics.clear();
     for (let i = 0; i < MainScene.MAX_GHOST_LASERS; i++) {
       const l = this.ghostLaserBuffer[i];
-      if (!l || !l.active) continue;
+      if (!l?.active) continue;
 
       l.age += deltaSec;
 
@@ -594,7 +608,7 @@ export class MainScene extends Phaser.Scene {
       this.ghostLaserGraphics.beginPath();
 
       if (l.weaponType === 'lightning') {
-        this.ghostLaserGraphics.lineStyle(3, 0x00ffff, a);
+        this.ghostLaserGraphics.lineStyle(3, colorHex, a);
         let px = l.x;
         let py = l.y;
         this.ghostLaserGraphics.moveTo(px, py);
@@ -624,7 +638,7 @@ export class MainScene extends Phaser.Scene {
 
     // 2. Coin particles (swap-and-pop for O(1) removal)
     for (let i = this.coinParticles.length - 1; i >= 0; i--) {
-      const p = this.coinParticles[i]!;
+      const p = this.coinParticles[i];
       p.age += deltaSec;
 
       if (p.age >= p.duration) {
@@ -632,7 +646,7 @@ export class MainScene extends Phaser.Scene {
           this.onLocalCoinsArrived(p.payout);
         }
         // Swap-and-pop: O(1) removal
-        this.coinParticles[i] = this.coinParticles[this.coinParticles.length - 1];
+        this.coinParticles[i] = this.coinParticles.at(-1)!;
         this.coinParticles.pop();
         continue;
       }
@@ -657,14 +671,14 @@ export class MainScene extends Phaser.Scene {
 
     // 3. Payout Notifications
     for (let i = this.payoutNotifications.length - 1; i >= 0; i--) {
-      const n = this.payoutNotifications[i]!;
+      const n = this.payoutNotifications[i];
       n.age += deltaSec;
       n.y -= 50 * deltaSec; // float up
 
       if (n.age > 2) {
         if (n.textObj) n.textObj.destroy();
         // Swap-and-pop: O(1) removal
-        this.payoutNotifications[i] = this.payoutNotifications[this.payoutNotifications.length - 1];
+        this.payoutNotifications[i] = this.payoutNotifications.at(-1)!;
         this.payoutNotifications.pop();
         continue;
       }

@@ -20,11 +20,11 @@ import {
   MIN_BET,
   MAX_BET,
   BET_INCREMENT,
-  BET_TIERS,
   CLIENT_MESSAGES,
   SERVER_MESSAGES,
   WEAPON_COST,
   WEAPON_TYPES,
+  clampTurretAngle,
 } from '@space-shooter/shared';
 import type { WeaponType, FireWeaponMessage, ChangeBetMessage, PointerMoveMessage, SwitchWeaponMessage } from '@space-shooter/shared';
 
@@ -468,10 +468,12 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
     }
 
     // Queue a fire intent for the next tick (never mutate ECS mid-tick)
+    const seatIndex = this.seats.indexOf(sessionId);
+    const clampedAngle = seatIndex >= 0 ? clampTurretAngle(message.angle, seatIndex) : message.angle;
     const intentId = this.world.createEntity();
     const intent: import('../ecs/components.js').FireIntentComponent = {
       playerId: sessionId,
-      angle: message.angle,
+      angle: clampedAngle,
       betAmount,
       weaponType,
     };
@@ -515,7 +517,7 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
     if (!Number.isFinite(message.angle)) return;
     const player = this.state.players.get(client.sessionId);
     if (player) {
-      player.turretAngle = message.angle;
+      player.turretAngle = clampTurretAngle(message.angle, player.seatIndex);
     }
   }
 
@@ -575,7 +577,7 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
           sessionId: proj.ownerId,
           seatIndex,
           angle: proj.angle,
-          lockedTargetId: proj.lockedTargetId !== undefined ? String(proj.lockedTargetId) : undefined,
+          lockedTargetId: proj.lockedTargetId === undefined ? undefined : String(proj.lockedTargetId),
         }, { except: targetClient });
       }
     }

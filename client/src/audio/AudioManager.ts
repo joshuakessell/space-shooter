@@ -5,35 +5,35 @@ const MAX_EXPLOSIONS = 5;
 
 export class AudioManager {
   // Music
-  private bgm: Howl;
+  private readonly bgm: Howl;
 
   // Laser sounds by type
-  private laserStandard: Howl;
-  private laserSpread: Howl;
-  private laserLightning: Howl;
+  private readonly laserStandard: Howl;
+  private readonly laserSpread: Howl;
+  private readonly laserLightning: Howl;
 
   // Explosion sounds by size
-  private explosionSmall: Howl;
-  private explosionMedium: Howl;
-  private explosionBoss: Howl;
+  private readonly explosionSmall: Howl;
+  private readonly explosionMedium: Howl;
+  private readonly explosionBoss: Howl;
 
   // Utility sounds
-  private coinCollect: Howl;
-  private jackpotSiren: Howl;
-  private impactHit: Howl;
+  private readonly coinCollect: Howl;
+  private readonly jackpotSiren: Howl;
+  private readonly impactHit: Howl;
 
   // Special ability sounds
-  private blackholeActivate: Howl;
-  private empDischarge: Howl;
-  private drillLaunch: Howl;
-  private orbitalLaser: Howl;
-  private vaultOpen: Howl;
-  private supernovaBlast: Howl;
+  private readonly blackholeActivate: Howl;
+  private readonly empDischarge: Howl;
+  private readonly drillLaunch: Howl;
+  private readonly orbitalLaser: Howl;
+  private readonly vaultOpen: Howl;
+  private readonly supernovaBlast: Howl;
 
   // Volume controls
-  private masterVolume = 1.0;
-  private musicVolume = 1.0;
-  private sfxVolume = 1.0;
+  private masterVolume = 1;
+  private musicVolume = 1;
+  private sfxVolume = 1;
 
   // State management
   private isInitialized = false;
@@ -41,7 +41,7 @@ export class AudioManager {
   private coinCombo = 0;
   private coinDebounceTimer: number | null = null;
   private activeExplosions = 0;
-  private failedLoads: string[] = [];
+  private readonly failedLoads: string[] = [];
 
   /** Optional callback fired when a sound file fails to load */
   public onLoadError: ((soundName: string) => void) | null = null;
@@ -200,7 +200,7 @@ export class AudioManager {
    * Play a sound with spatial panning, rate control, and optional volume multiplier.
    * @param volumeScale - Multiplier on the sound's base volume (0-1). Used to dampen remote player sounds.
    */
-  private playSpatialSound(sound: Howl, x?: number, rate = 1.0, volumeScale = 1.0): number | undefined {
+  private playSpatialSound(sound: Howl, x?: number, rate = 1, volumeScale = 1): number | undefined {
     if (!this.isInitialized) return undefined;
 
     const id = sound.play();
@@ -210,7 +210,7 @@ export class AudioManager {
     sound.rate(rate, id);
 
     // Apply volume scale (for dampening remote player sounds)
-    if (volumeScale < 1.0) {
+    if (volumeScale < 1) {
       sound.volume(sound.volume() * volumeScale, id);
     }
 
@@ -227,7 +227,7 @@ export class AudioManager {
    * Play a laser sound based on weapon type.
    * Supports: 'standard', 'spread', 'lightning'
    */
-  public playShoot(x?: number, weaponType: string = 'standard', volumeScale = 1.0): void {
+  public playShoot(x?: number, weaponType: string = 'standard', volumeScale = 1): void {
     if (!this.isInitialized) return;
 
     let laserSound: Howl;
@@ -244,7 +244,7 @@ export class AudioManager {
         break;
     }
 
-    this.playSpatialSound(laserSound, x, 1.0, volumeScale);
+    this.playSpatialSound(laserSound, x, 1, volumeScale);
   }
 
   /**
@@ -297,9 +297,9 @@ export class AudioManager {
     }
     this.lastCoinTime = now;
 
-    // Calculate pitch increase: 1.0 + (combo * 0.05), capped at 2.0
-    const currentRate = 1.0 + (this.coinCombo * 0.05);
-    const cappedRate = Math.min(currentRate, 2.0);
+    // Calculate pitch increase: 1 + (combo * 0.05), capped at 2
+    const currentRate = 1 + (this.coinCombo * 0.05);
+    const cappedRate = Math.min(currentRate, 2);
 
     this.playSpatialSound(this.coinCollect, x, cappedRate);
 

@@ -108,7 +108,7 @@ export class RtpEngine {
 
     // Guard against NaN before any coercion — NaN inputs indicate corrupted economy state
     if (!Number.isFinite(betAmount) || !Number.isFinite(absorbedCredits) || !Number.isFinite(reservePool.globalReservePool)) {
-      throw new Error(
+      throw new TypeError(
         `[RTP CRITICAL] Non-finite value detected in RtpEngine — economy state corrupted. ` +
         `bet=${betAmount}, absorbed=${absorbedCredits}, pool=${reservePool.globalReservePool}`
       );
