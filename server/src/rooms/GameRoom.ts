@@ -468,10 +468,12 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
     }
 
     // Queue a fire intent for the next tick (never mutate ECS mid-tick)
+    const seatIndex = this.seats.indexOf(sessionId);
+    const clampedAngle = seatIndex >= 0 ? clampTurretAngle(message.angle, seatIndex) : message.angle;
     const intentId = this.world.createEntity();
     const intent: import('../ecs/components.js').FireIntentComponent = {
       playerId: sessionId,
-      angle: message.angle,
+      angle: clampedAngle,
       betAmount,
       weaponType,
     };

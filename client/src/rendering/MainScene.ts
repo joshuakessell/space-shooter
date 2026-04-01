@@ -401,8 +401,10 @@ export class MainScene extends Phaser.Scene {
         const base = this.add.sprite(0, 0, 'turret');
         base.setOrigin(0.5, 0.5);
         base.setScale(2);
-        // Player-colored glow on the base lights
-        base.preFX?.addGlow(colorHex, 4, 0, false, 0.15, 24);
+        // Player-colored glow on the base lights (WebGL2 only)
+        if (base.preFX) {
+          base.preFX.addGlow(colorHex, 4, 0, false, 0.15, 24);
+        }
 
         // Turret barrel sprite — weapon-specific animated barrel; 4x scale for HD
         const weaponType = player.weaponType || 'standard';
@@ -410,17 +412,25 @@ export class MainScene extends Phaser.Scene {
         const barrel = this.add.sprite(0, 0, barrelKey);
         barrel.setOrigin(0.5, 0.84);
         barrel.setScale(4);
-        // Player-colored glow on barrel effects (lights/electricity)
-        barrel.preFX?.addGlow(colorHex, 4, 0, false, 0.15, 24);
+        // Player-colored glow on barrel effects (lights/electricity, WebGL2 only)
+        if (barrel.preFX) {
+          barrel.preFX.addGlow(colorHex, 4, 0, false, 0.15, 24);
+        }
         barrel.play(`${barrelKey}_idle`);
 
         container.add([base, barrel]);
 
-        // Local player gets a glow ring underneath
+        // Player-colored ring for identification (also serves as WebGL1 fallback)
+        const ring = this.add.graphics();
+        ring.lineStyle(2, colorHex, 0.5);
+        ring.strokeCircle(0, 0, 68);
+        container.addAt(ring, 0);
+
+        // Local player gets a brighter, thicker glow ring
         if (sessionId === this.localSessionId) {
           const glow = this.add.graphics();
-          glow.lineStyle(2, colorHex, 0.5);
-          glow.strokeCircle(0, 0, 68);
+          glow.lineStyle(3, colorHex, 0.8);
+          glow.strokeCircle(0, 0, 72);
           container.addAt(glow, 0);
         }
 
