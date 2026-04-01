@@ -286,11 +286,14 @@ function processEmp(
     return;
   }
 
-  // Kill one per tick (staggered cadence)
-  const victimId = hazard.pendingVictimIds.shift()!;
-  const obj = ctx.world.spaceObjects.get(victimId);
-  if (obj && !obj.isDead) {
-    killTargetForHazard(ctx, victimId, obj, hazard);
+  // Kill one per tick (staggered cadence) — skip despawned/dead victims
+  while (hazard.pendingVictimIds.length > 0) {
+    const victimId = hazard.pendingVictimIds.shift()!;
+    const obj = ctx.world.spaceObjects.get(victimId);
+    if (obj && !obj.isDead) {
+      killTargetForHazard(ctx, victimId, obj, hazard);
+      break;
+    }
   }
 }
 

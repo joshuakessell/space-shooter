@@ -16,9 +16,12 @@ export class WalletManager {
   private readonly balances: Map<string, number> = new Map();
   private readonly pendingDeltas: Map<string, number> = new Map();
   private readonly locks: Set<string> = new Set();
-  
+
   // Track sync status to avoid overlapping syncs for the same player
   private readonly syncingPlayers: Set<string> = new Set();
+
+  /** Threshold for immediate sync (large win or loss triggers instant DB write) */
+  private static readonly IMMEDIATE_SYNC_THRESHOLD = 500;
 
   /** Initialize a player's wallet */
   initPlayer(playerId: string, startingBalance: number): void {
@@ -82,7 +85,15 @@ export class WalletManager {
       const balance = this.balances.get(playerId) ?? 0;
       this.balances.set(playerId, balance + amount);
       const currentDelta = this.pendingDeltas.get(playerId) ?? 0;
-      this.pendingDeltas.set(playerId, currentDelta + amount);
+      const newDelta = currentDelta + amount;
+      this.pendingDeltas.set(playerId, newDelta);
+
+      // Immediate sync for large payouts to minimize crash-loss window
+      if (Math.abs(newDelta) >= WalletManager.IMMEDIATE_SYNC_THRESHOLD) {
+        this.syncToDatabase(playerId).catch(err => {
+          console.error(`[WalletManager] Immediate sync failed for ${playerId}:`, err);
+        });
+      }
     } finally {
       this.locks.delete(playerId);
     }
@@ -139,7 +150,7 @@ export class WalletManager {
             });
           }
           
-          if (updatedUser.balance < 0) {
+          if (Number(updatedUser.balance) < 0) {
             throw new Error(`Critical Security Alert: Attempted to push balance below 0 for user ${playerId}`);
           }
           
@@ -149,7 +160,7 @@ export class WalletManager {
               userId: playerId,
               action: action,
               amount: delta,
-              resultingBalance: updatedUser.balance,
+              resultingBalance: Number(updatedUser.balance),
               details: forceDetails ?? { batchSync: true },
             }
           });

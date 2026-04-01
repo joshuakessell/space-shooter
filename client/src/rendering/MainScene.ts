@@ -339,6 +339,7 @@ export class MainScene extends Phaser.Scene {
     // Cleanup despawned objects
     for (const [key, objContainer] of this.spaceObjectSprites.entries()) {
       if (!activeIds.has(key)) {
+        this.tweens.killTweensOf(objContainer.container);
         objContainer.container.destroy();
         this.spaceObjectSprites.delete(key);
       }

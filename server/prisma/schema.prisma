@@ -16,10 +16,16 @@ model User {
   id        String     @id @default(uuid())
   username  String?
   token     String     @unique
-  balance   Float      @default(1000)
+  balance   Decimal    @default(1000) @db.Decimal(12, 2)
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   auditLogs AuditLog[]
+}
+
+model RoomEconomy {
+  id              String   @id @default("singleton")
+  reservePool     Decimal  @default(0) @db.Decimal(12, 2)
+  updatedAt       DateTime @updatedAt
 }
 
 enum AuditAction {
@@ -34,11 +40,12 @@ model AuditLog {
   userId           String
   user             User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   action           AuditAction
-  amount           Float
-  resultingBalance Float
-  details          Json?
+  amount           Decimal    @db.Decimal(12, 2)
+  resultingBalance Decimal    @db.Decimal(12, 2)
+  details          Json
   timestamp        DateTime    @default(now())
 
   @@index([userId, timestamp])
+  @@index([timestamp])
 }
 

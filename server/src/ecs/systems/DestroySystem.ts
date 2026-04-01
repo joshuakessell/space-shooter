@@ -505,9 +505,10 @@ function resolveFeatureSpawn(
 
     ctx.wallet.logHighValueWin(playerId, betAmount * multiplier, 'FEATURE_WIN' as any, { hazardType: 'vault', multiplier });
   } else {
-    // Roll payout budget
+    // Roll payout budget (capped to prevent extreme payouts)
     const budgetMultiplier = ctx.rng.randomRange(HAZARD_BUDGET_MIN, HAZARD_BUDGET_MAX + 1);
-    const budget = betAmount * budgetMultiplier;
+    const MAX_ABSOLUTE_BUDGET = 50000;
+    const budget = Math.min(betAmount * budgetMultiplier, MAX_ABSOLUTE_BUDGET);
 
     featureSpawns.push({
       hazardType,
