@@ -397,18 +397,21 @@ export class MainScene extends Phaser.Scene {
         const seatColorStr = SEAT_COLORS[player.seatIndex] || '#ffffff';
         const colorHex = Phaser.Display.Color.HexStringToColor(seatColorStr).color;
 
-        // Turret base sprite
+        // Turret base sprite — no tint, natural gray color; 2x scale for HD
         const base = this.add.sprite(0, 0, 'turret');
         base.setOrigin(0.5, 0.5);
-        base.setTint(colorHex);
+        base.setScale(2);
+        // Player-colored glow on the base lights
+        base.preFX?.addGlow(colorHex, 4, 0, false, 0.15, 24);
 
-        // Turret barrel sprite — weapon-specific animated barrel
+        // Turret barrel sprite — weapon-specific animated barrel; 4x scale for HD
         const weaponType = player.weaponType || 'standard';
         const barrelKey = `turret_barrel_${weaponType}`;
         const barrel = this.add.sprite(0, 0, barrelKey);
         barrel.setOrigin(0.5, 0.84);
-        barrel.setScale(2);
-        barrel.setTint(colorHex);
+        barrel.setScale(4);
+        // Player-colored glow on barrel effects (lights/electricity)
+        barrel.preFX?.addGlow(colorHex, 4, 0, false, 0.15, 24);
         barrel.play(`${barrelKey}_idle`);
 
         container.add([base, barrel]);
@@ -417,7 +420,7 @@ export class MainScene extends Phaser.Scene {
         if (sessionId === this.localSessionId) {
           const glow = this.add.graphics();
           glow.lineStyle(2, colorHex, 0.5);
-          glow.strokeCircle(0, 0, 34);
+          glow.strokeCircle(0, 0, 68);
           container.addAt(glow, 0);
         }
 
@@ -433,7 +436,9 @@ export class MainScene extends Phaser.Scene {
         const seatColorStr = SEAT_COLORS[player.seatIndex] || '#ffffff';
         const colorHex = Phaser.Display.Color.HexStringToColor(seatColorStr).color;
         barrel.setTexture(expectedBarrelKey);
-        barrel.setTint(colorHex);
+        // Refresh glow with player color on new barrel
+        barrel.preFX?.clear();
+        barrel.preFX?.addGlow(colorHex, 4, 0, false, 0.15, 24);
         barrel.play(`${expectedBarrelKey}_idle`);
       }
 
@@ -593,7 +598,7 @@ export class MainScene extends Phaser.Scene {
       this.ghostLaserGraphics.beginPath();
 
       if (l.weaponType === 'lightning') {
-        this.ghostLaserGraphics.lineStyle(3, 0x00ffff, a);
+        this.ghostLaserGraphics.lineStyle(3, colorHex, a);
         let px = l.x;
         let py = l.y;
         this.ghostLaserGraphics.moveTo(px, py);

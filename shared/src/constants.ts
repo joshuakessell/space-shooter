@@ -60,29 +60,52 @@ export const OBJECT_MAX_SPEED = 220;
 export const SPAWN_MIN_INTERVAL_TICKS = 1;   // 50ms — fast spawns to keep targets plentiful
 export const SPAWN_MAX_INTERVAL_TICKS = 3;   // 150ms
 
-/** Turret positions: pixel coordinates for each of the 6 turret slots */
+/** Turret pivot offset from screen edge (pixels) */
+export const TURRET_EDGE_OFFSET = 5;
+
+/** Turret positions: pixel coordinates for each of the 6 turret slots.
+ *  Pivot centers sit 5px from the screen edge. */
 export const TURRET_POSITIONS: Record<string, { x: number; y: number }> = {
-  TOP_LEFT:      { x: 240,  y: 60 },
-  TOP_MIDDLE:    { x: 960,  y: 60 },
-  TOP_RIGHT:     { x: 1680, y: 60 },
-  BOTTOM_LEFT:   { x: 240,  y: 1020 },
-  BOTTOM_MIDDLE: { x: 960,  y: 1020 },
-  BOTTOM_RIGHT:  { x: 1680, y: 1020 },
+  TOP_LEFT:      { x: 240,  y: TURRET_EDGE_OFFSET },
+  TOP_MIDDLE:    { x: 960,  y: TURRET_EDGE_OFFSET },
+  TOP_RIGHT:     { x: 1680, y: TURRET_EDGE_OFFSET },
+  BOTTOM_LEFT:   { x: 240,  y: GAME_HEIGHT - TURRET_EDGE_OFFSET },
+  BOTTOM_MIDDLE: { x: 960,  y: GAME_HEIGHT - TURRET_EDGE_OFFSET },
+  BOTTOM_RIGHT:  { x: 1680, y: GAME_HEIGHT - TURRET_EDGE_OFFSET },
 };
 
 /**
  * Seat-indexed turret coordinates (seatIndex 0–5).
  * 0=bottom-left, 1=bottom-middle, 2=bottom-right,
  * 3=top-left, 4=top-middle, 5=top-right.
+ * Pivot centers sit 5px from the screen edge.
  */
 export const SEAT_COORDINATES: readonly { readonly x: number; readonly y: number }[] = [
-  { x: 240,  y: 1020 }, // seat 0 — bottom-left
-  { x: 960,  y: 1020 }, // seat 1 — bottom-middle
-  { x: 1680, y: 1020 }, // seat 2 — bottom-right
-  { x: 240,  y: 60 },   // seat 3 — top-left
-  { x: 960,  y: 60 },   // seat 4 — top-middle
-  { x: 1680, y: 60 },   // seat 5 — top-right
+  { x: 240,  y: GAME_HEIGHT - TURRET_EDGE_OFFSET }, // seat 0 — bottom-left
+  { x: 960,  y: GAME_HEIGHT - TURRET_EDGE_OFFSET }, // seat 1 — bottom-middle
+  { x: 1680, y: GAME_HEIGHT - TURRET_EDGE_OFFSET }, // seat 2 — bottom-right
+  { x: 240,  y: TURRET_EDGE_OFFSET },               // seat 3 — top-left
+  { x: 960,  y: TURRET_EDGE_OFFSET },               // seat 4 — top-middle
+  { x: 1680, y: TURRET_EDGE_OFFSET },               // seat 5 — top-right
 ];
+
+/** Whether a seat index is on the top edge (seats 3–5) */
+export function isSeatTop(seatIndex: number): boolean {
+  return seatIndex >= 3;
+}
+
+/** Clamp an angle to the valid 180° firing arc for the given seat.
+ *  Bottom seats fire upward [-π, 0], top seats fire downward [0, π]. */
+export function clampTurretAngle(angle: number, seatIndex: number): number {
+  if (isSeatTop(seatIndex)) {
+    // Top turrets fire downward: valid range [0, π]
+    if (angle < 0) return angle > -Math.PI / 2 ? 0 : Math.PI;
+  } else {
+    // Bottom turrets fire upward: valid range [-π, 0]
+    if (angle > 0) return angle < Math.PI / 2 ? 0 : -Math.PI;
+  }
+  return angle;
+}
 
 /** Maximum wall bounces before a projectile expires */
 export const MAX_BOUNCES = 4;

@@ -24,6 +24,7 @@ import {
   SERVER_MESSAGES,
   WEAPON_COST,
   WEAPON_TYPES,
+  clampTurretAngle,
 } from '@space-shooter/shared';
 import type { WeaponType, FireWeaponMessage, ChangeBetMessage, PointerMoveMessage, SwitchWeaponMessage } from '@space-shooter/shared';
 
@@ -514,7 +515,7 @@ export class GameRoom extends Room<{ state: GameRoomState }> {
     if (!Number.isFinite(message.angle)) return;
     const player = this.state.players.get(client.sessionId);
     if (player) {
-      player.turretAngle = message.angle;
+      player.turretAngle = clampTurretAngle(message.angle, player.seatIndex);
     }
   }
 

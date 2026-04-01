@@ -7,7 +7,7 @@
 // ─────────────────────────────────────────────────────────────
 
 import type { SyncedSpaceObjectState } from '../network/ColyseusClient.js';
-import { GAME_WIDTH, GAME_HEIGHT } from '@space-shooter/shared';
+import { GAME_WIDTH, GAME_HEIGHT, clampTurretAngle } from '@space-shooter/shared';
 import type { WeaponType } from '@space-shooter/shared';
 
 export interface FireIntent {
